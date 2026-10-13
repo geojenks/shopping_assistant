@@ -97,8 +97,9 @@ def collect(items: Iterable[Item], sites: Iterable[Site], searcher: Searcher,
                 outcome.error = f"{type(e).__name__}: {e}".splitlines()[0][:200]
             else:
                 outcome.found = len(listings)
-                outcome.products = [to_product(site, item, l) for l in listings
-                                    if l.available and is_item(item, l.name)][:max_per_item]
+                matches = [to_product(site, item, l) for l in listings if l.available and is_item(item, l.name)]
+                # Keep the best value per kg / litre / item, not just the first on the page.
+                outcome.products = sorted(matches, key=lambda p: p.price / p.size if p.size else p.price)[:max_per_item]
             outcomes.append(outcome)
             if on_result:
                 on_result(outcome)
