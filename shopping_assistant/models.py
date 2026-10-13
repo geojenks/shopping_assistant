@@ -169,3 +169,5 @@ class Settings:
     travel: TravelCosts = field(default_factory=TravelCosts)
     max_channels: int = 3  # most shops/deliveries combined in one plan
     default_own_label_ok: bool = True
+    postcode: str = ""  # some shops (Co-op) price by local store
+    browser: dict = field(default_factory=dict)  # BrowserSetup fields chosen by `shop prices doctor`

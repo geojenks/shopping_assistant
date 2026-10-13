@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from dataclasses import asdict, replace
 from datetime import date
 from pathlib import Path
 
@@ -185,13 +186,68 @@ def _sites(chains: str | None, db: Database):
     return [site for chain, site in SITES.items() if chain in chains_with_stores] or list(SITES.values())
 
 
-def _fetcher(args):
+def _fetcher(args, db: Database, save_dir: Path | None = None):
     try:
-        from .prices.browser import BrowserFetcher
-        return BrowserFetcher(profile_dir=Path(args.db).resolve().parent / "browser-profile",
-                              headless=not args.show_browser, delay=(args.delay, args.delay * 2.5))
+        from .prices.browser import BrowserFetcher, BrowserSetup
     except ImportError:
         sys.exit("Fetching prices needs Playwright:  pip install -e '.[web]' && playwright install chromium")
+    settings = db.settings()
+    setup = BrowserSetup(**settings.browser)
+    if args.show_browser:
+        setup = replace(setup, headless=False)
+    return BrowserFetcher(profile_dir=Path(args.db).resolve().parent / "browser-profile", setup=setup,
+                          delay=(args.delay, args.delay * 2.5), save_dir=save_dir, postcode=settings.postcode)
+
+
+def _doctor(db: Database, args) -> None:
+    """Try each way of driving a browser against each shop; keep the one that gets through most."""
+    import shutil
+    import tempfile
+    from .prices.browser import SETUPS, BrowserFetcher, SiteNeedsSetup, tiles_to_listings
+
+    sites = _sites(",".join(args.args) if args.args else None, db)
+    base = Path(args.db).resolve().parent
+    out = base / "probe" / "doctor"
+    postcode = db.settings().postcode
+    query = "semi skimmed milk"
+    print(f"Searching {', '.join(s.chain for s in sites)} for {query!r} with each browser setup.")
+    print(f"Pages and screenshots go to {out}\n")
+    results = []
+    for n, setup in enumerate(SETUPS, 1):
+        print(f"{n}. {setup.label}")
+        profile = tempfile.mkdtemp(prefix="shop-doctor-")  # fresh: no cookies a site may have flagged
+        try:
+            fetcher = BrowserFetcher(profile, setup, delay=(0.5, 1.5), save_dir=out, postcode=postcode)
+        except Exception as e:
+            print(f"   not available here ({str(e).splitlines()[0][:100]})")
+            continue
+        got = 0
+        with fetcher:
+            for site in sites:
+                try:
+                    fetcher.open(site.url_for(query), site.extra_wait_ms, site)
+                    listings = tiles_to_listings(site, fetcher.tiles(site))
+                    fetcher.snapshot(f"{n}-{site.chain}")
+                    status = f"{len(listings)} products" if listings else f"nothing (page title {fetcher.page.title()!r})"
+                    got += bool(listings)
+                except SiteNeedsSetup as e:
+                    status = str(e)
+                except Exception as e:
+                    status = f"failed ({type(e).__name__}: {str(e).splitlines()[0][:100]})"
+                print(f"   {site.chain:<11} {status}")
+        shutil.rmtree(profile, ignore_errors=True)
+        results.append((got, -n, setup))
+        if got == len(sites):
+            break
+    if not results or max(results)[0] == 0:
+        print("\nNo setup got through. Send me the pages and screenshots in the folder above.")
+        return
+    got, _, best = max(results)
+    db.set_setting("browser", asdict(best))
+    print(f"\nUsing {best.label} from now on ({got} of {len(sites)} shops worked).")
+    old = base / "browser-profile"
+    if old.exists():  # a site may have flagged the old profile's cookies; start clean
+        old.rename(base / f"browser-profile.old-{date.today():%Y%m%d}-{os.getpid()}")
 
 
 def cmd_prices(db: Database, args) -> None:
@@ -214,6 +270,10 @@ def cmd_prices(db: Database, args) -> None:
             print(f"  {p.chain:<11} £{p.price:5.2f}{_offer_text(p)}  {p.name}  [{p.key}]{flag}")
         return
 
+    if args.action == "doctor":
+        _doctor(db, args)
+        return
+
     if args.action == "probe":
         if len(args.args) < 2:
             sys.exit("Usage: shop prices probe CHAIN SEARCH WORDS")
@@ -221,8 +281,8 @@ def cmd_prices(db: Database, args) -> None:
         query = " ".join(args.args[1:])
         save_dir = Path(args.db).resolve().parent / "probe"
         from .prices.browser import tiles_to_listings
-        with _fetcher(args) as fetcher:
-            fetcher.open(site.url_for(query), site.extra_wait_ms)
+        with _fetcher(args, db, save_dir) as fetcher:
+            fetcher.open(site.url_for(query), site.extra_wait_ms, site)
             tiles = fetcher.tiles(site)
             links = [] if tiles else fetcher.product_like_links()
             stem = f"{site.chain}-{query}".replace(" ", "_")
@@ -276,14 +336,17 @@ def cmd_prices(db: Database, args) -> None:
         else:
             print(f"  {o.chain:<11} {name}: {o.found} results, none match the item")
 
-    with _fetcher(args) as fetcher:
+    with _fetcher(args, db) as fetcher:
         collect(wanted, sites, fetcher, on_result=report_one)
 
 
 def cmd_set(db: Database, args) -> None:
-    value = {"true": True, "false": False}.get(args.value.lower())
-    if value is None:
-        value = float(args.value) if "." in args.value else int(args.value)
+    if args.key == "postcode":
+        value = args.value.strip().upper()
+    else:
+        value = {"true": True, "false": False}.get(args.value.lower())
+        if value is None:
+            value = float(args.value) if "." in args.value else int(args.value)
     db.set_setting(args.key, value)
     print(f"{args.key} = {value}")
 
@@ -341,8 +404,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("prices", help="fetch prices from supermarket websites",
                        description="update: refresh prices | probe CHAIN SEARCH: test one search | "
+                                   "doctor [CHAINS]: find a browser setup the shops accept | "
                                    "show ITEM: what we know | status: when each shop was last checked")
-    s.add_argument("action", choices=["update", "probe", "show", "status"])
+    s.add_argument("action", choices=["update", "probe", "show", "status", "doctor"])
     s.add_argument("args", nargs="*")
     s.add_argument("--chains", help="comma-separated, e.g. tesco,aldi (default: chains you have stores for)")
     s.add_argument("--items", help="comma-separated items (default: every item)")
@@ -356,9 +420,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_suggest)
 
     s = sub.add_parser("set", help="settings: per_stop, per_mile, max_distance_miles, max_channels, "
-                                   "default_own_label_ok")
+                                   "default_own_label_ok, postcode")
     s.add_argument("key", choices=["per_stop", "per_mile", "max_distance_miles", "max_channels",
-                                   "default_own_label_ok"])
+                                   "default_own_label_ok", "postcode"])
     s.add_argument("value")
     s.set_defaults(func=cmd_set)
     return p

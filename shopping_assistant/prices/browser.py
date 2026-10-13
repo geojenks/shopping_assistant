@@ -11,6 +11,7 @@ import os
 import random
 import re
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from string import capwords
 
@@ -108,32 +109,71 @@ def tiles_to_listings(site: Site, tiles: list[dict]) -> list[Listing]:
     return listings
 
 
+@dataclass(frozen=True)
+class BrowserSetup:
+    """Which browser to drive and how. Sites differ in what their bot checks accept."""
+
+    channel: str = ""  # "" = Playwright's own Chromium; "chrome" or "msedge" = the installed browser
+    headless: bool = True
+    stealth: bool = True  # hide the automation flags and the "HeadlessChrome" user agent
+
+    @property
+    def label(self) -> str:
+        name = {"": "built-in Chromium", "chrome": "Google Chrome", "msedge": "Microsoft Edge"}[self.channel]
+        return f"{name}, {'hidden' if self.headless else 'window'}{'' if self.stealth else ', plain'}"
+
+
+# What `shop prices doctor` tries, in order.
+SETUPS = (
+    BrowserSetup(),
+    BrowserSetup(stealth=False),
+    BrowserSetup(channel="chrome"),
+    BrowserSetup(channel="chrome", headless=False),
+    BrowserSetup(channel="msedge", headless=False),
+)
+
+
+class SiteNeedsSetup(Exception):
+    pass
+
+
 class BrowserFetcher:
-    def __init__(self, profile_dir: str | Path = "data/private/browser-profile", headless: bool = True,
-                 delay: tuple[float, float] = (2.0, 5.0), save_dir: str | Path | None = None):
+    def __init__(self, profile_dir: str | Path = "data/private/browser-profile", setup: BrowserSetup = BrowserSetup(),
+                 delay: tuple[float, float] = (2.0, 5.0), save_dir: str | Path | None = None, postcode: str = ""):
         from playwright.sync_api import sync_playwright  # optional dependency
 
         self._pw = sync_playwright().start()
-        launch: dict = {
-            "headless": headless, "locale": "en-GB", "timezone_id": "Europe/London",
-            "viewport": {"width": 1366, "height": 900},
-            # Bot checks (Akamai at Sainsbury's and Waitrose) turn away browsers that say they're automated.
-            "args": ["--disable-blink-features=AutomationControlled"],
-        }
-        if os.environ.get("SHOP_CHROMIUM"):
-            launch["executable_path"] = os.environ["SHOP_CHROMIUM"]
-        if headless:
-            launch["user_agent"] = self._plain_user_agent(launch)
-        self.context = self._pw.chromium.launch_persistent_context(str(profile_dir), **launch)
-        self.context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        try:
+            self._launch(profile_dir, setup)
+        except Exception:
+            self._pw.stop()  # or the next BrowserFetcher can't start Playwright
+            raise
         self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
         self.delay = delay
         self.save_dir = Path(save_dir) if save_dir else None
+        self.postcode = postcode
         self._last = 0.0
+
+    def _launch(self, profile_dir: str | Path, setup: BrowserSetup) -> None:
+        launch: dict = {"headless": setup.headless, "locale": "en-GB", "timezone_id": "Europe/London",
+                        "viewport": {"width": 1366, "height": 900}}
+        if setup.channel:
+            launch["channel"] = setup.channel
+        elif os.environ.get("SHOP_CHROMIUM"):
+            launch["executable_path"] = os.environ["SHOP_CHROMIUM"]
+        if setup.stealth:
+            # Bot checks (Akamai at Sainsbury's and Waitrose) turn away browsers that say they're automated.
+            launch["args"] = ["--disable-blink-features=AutomationControlled"]
+            if setup.headless:
+                launch["user_agent"] = self._plain_user_agent(launch)
+        self.context = self._pw.chromium.launch_persistent_context(str(profile_dir), **launch)
+        if setup.stealth:
+            self.context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
     def _plain_user_agent(self, launch: dict) -> str:
         """This browser's user agent without the "HeadlessChrome" giveaway."""
-        browser = self._pw.chromium.launch(headless=True, executable_path=launch.get("executable_path"))
+        browser = self._pw.chromium.launch(
+            headless=True, **{k: launch[k] for k in ("channel", "executable_path") if k in launch})
         try:
             agent = browser.new_page().evaluate("navigator.userAgent")
         finally:
@@ -166,9 +206,40 @@ class BrowserFetcher:
             except Exception:
                 continue
 
-    def open(self, url: str, wait_ms: int = 0) -> None:
+    def _settle(self) -> None:
+        self._accept_cookies()
+        try:
+            self.page.wait_for_load_state("networkidle", timeout=15_000)
+        except Exception:
+            pass  # some sites never go idle; the tiles are usually there anyway
+
+    def _enter_postcode(self, site: Site) -> bool:
+        """Get past a "which store are you near?" page (Co-op). True if there was one."""
+        box = self.page.locator(site.postcode_input).first
+        try:
+            if not box.is_visible(timeout=1500):
+                return False
+        except Exception:
+            return False
+        if not self.postcode:
+            raise SiteNeedsSetup(f"{site.chain} asks for a postcode first: shop set postcode \"AB1 2CD\"")
+        box.fill(self.postcode)
+        box.press("Enter")
+        self._settle()
+        self.snapshot(f"{site.chain}-after-postcode")
+        return True
+
+    def snapshot(self, stem: str) -> None:
+        if self.save_dir:
+            self.save_dir.mkdir(parents=True, exist_ok=True)
+            (self.save_dir / f"{stem}.html").write_text(self.page.content(), encoding="utf-8")
+            self.page.screenshot(path=str(self.save_dir / f"{stem}.png"))
+
+    def open(self, url: str, wait_ms: int = 0, site: Site | None = None) -> None:
         self._pause()
         self.page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+        if site and site.postcode_input and self._enter_postcode(site):
+            self.page.goto(url, wait_until="domcontentloaded", timeout=45_000)
         self._accept_cookies()
         try:
             self.page.wait_for_load_state("networkidle", timeout=15_000)
@@ -190,11 +261,7 @@ class BrowserFetcher:
         return self.page.evaluate(EXTRACT_TILES, site.product_link)
 
     def search(self, site: Site, query: str) -> list[Listing]:
-        self.open(site.url_for(query), site.extra_wait_ms)
+        self.open(site.url_for(query), site.extra_wait_ms, site)
         tiles = self.tiles(site)
-        if self.save_dir:
-            self.save_dir.mkdir(parents=True, exist_ok=True)
-            stem = f"{site.chain}-{query}".replace(" ", "_").replace("/", "_")
-            (self.save_dir / f"{stem}.html").write_text(self.page.content(), encoding="utf-8")
-            self.page.screenshot(path=str(self.save_dir / f"{stem}.png"), full_page=False)
+        self.snapshot(f"{site.chain}-{query}".replace(" ", "_").replace("/", "_"))
         return tiles_to_listings(site, tiles)

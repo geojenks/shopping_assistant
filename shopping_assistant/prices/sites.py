@@ -27,6 +27,7 @@ class Site:
     loyalty_words: tuple[str, ...] = ()
     note: str = ""
     extra_wait_ms: int = 0
+    postcode_input: str = ""  # selector for a "your postcode" box shown before searching is allowed
 
     def url_for(self, query: str) -> str:
         return self.search_url.format(query=quote_plus(query))
@@ -118,6 +119,7 @@ SITES: dict[str, Site] = {s.chain: s for s in [
         value=("co-op honest value", "honest value"),
         own=("co-op", "coop", "the co-operative"),
         loyalty_words=("member price", "members price", "member"),
-        note="Blocks servers (Imperva): run from home. Search URL and layout not yet checked.",
+        postcode_input="input#postcode",  # it sends you to /welcome to pick your local store first
+        note="Needs your postcode (shop set postcode ...). Blocks servers: run from home.",
     ),
 ]}

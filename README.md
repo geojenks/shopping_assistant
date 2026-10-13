@@ -97,7 +97,7 @@ a price history.
 | Waitrose | waitrose.com search | Yes, October 2026 |
 | M&S | M&S's range on Ocado (M&S sells food online through Ocado; shop prices can differ slightly) | Yes, October 2026 |
 | Tesco | tesco.com grocery search | No: Tesco blocks servers, so it needs a run from home |
-| Co-op | shop.coop.co.uk search | No: blocks servers too; search address unconfirmed |
+| Co-op | shop.coop.co.uk search, after entering your postcode | No: blocks servers too; postcode step tested on a hand-made page |
 
 Sainsbury's, Aldi, Waitrose and Ocado work from a server; Tesco and Co-op only
 from a home connection, so running it on your own computer covers all six. Setup:
@@ -105,12 +105,19 @@ from a home connection, so running it on your own computer covers all six. Setup
 ```sh
 pip install -e '.[web]'
 playwright install chromium
-shop prices probe tesco semi skimmed milk --show-browser   # check each site once
+shop set postcode "BS5 6JS"                               # Co-op prices by local store
+shop prices doctor                                        # find a browser setup every shop accepts
+shop prices probe tesco semi skimmed milk --show-browser   # look at one search in detail
 shop prices update                                        # everything: ~10s per search
 shop prices update --list                                 # just what's on the list, before a shop
 shop prices show butter                                   # what it found, with product keys
 shop pref blacklist tesco:254656543                       # never pick that one again
 ```
+
+`doctor` tries each way of driving a browser (the built-in Chromium with and
+without hiding that it's automated, your installed Chrome, Edge, hidden or in a
+window), each with a fresh profile, searches every shop with it, and remembers the
+setup that gets through to the most shops. Run it again if a shop starts blocking.
 
 `probe` prints what it read from one search and saves the page and a screenshot
 next to the database (`probe/`), so if a supermarket changes its website or shows

@@ -1,0 +1,27 @@
+<!doctype html>
+<!-- Hand-made: like Co-op, results only show once you've given a postcode. -->
+<html><body>
+<div id="welcome" hidden>
+  <p>Enter your postcode to start shopping</p>
+  <form id="f"><input type="text" id="postcode" name="postcode"><button type="submit">Go</button></form>
+</div>
+<div id="results" hidden>
+  <p id="store"></p>
+  <a href="/product/co-op-british-semi-skimmed-milk-4-pints"><div>Co-op British Semi Skimmed Milk 4 Pints</div>
+    <div>£1.65</div><div>Member Price £1.50</div></a>
+</div>
+<script>
+  const saved = localStorage.getItem('postcode');
+  if (saved) {
+    document.getElementById('results').hidden = false;
+    document.getElementById('store').textContent = 'Shopping near ' + saved;
+  } else {
+    document.getElementById('welcome').hidden = false;
+  }
+  document.getElementById('f').addEventListener('submit', e => {
+    e.preventDefault();
+    localStorage.setItem('postcode', document.getElementById('postcode').value);
+    location.reload();
+  });
+</script>
+</body></html>

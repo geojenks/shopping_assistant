@@ -283,3 +283,15 @@ def test_products_without_a_pack_size_are_skipped_when_the_item_has_one():
 ])
 def test_counts_written_different_ways(name, count):
     assert size_in(name, "each") == count
+
+
+def test_postcode_page_is_filled_in_before_searching(browser):
+    from shopping_assistant.prices.browser import SiteNeedsSetup
+    site = local(SITES["coop"], "search_postcode_first.html")
+    browser.postcode = ""
+    with pytest.raises(SiteNeedsSetup):
+        browser.search(site, "milk")
+    browser.postcode = "BS5 6JS"
+    [milk] = browser.search(site, "milk")
+    assert (milk.name, milk.price, milk.loyalty_price) == ("Co-op British Semi Skimmed Milk 4 Pints", 1.65, 1.50)
+    assert browser.page.inner_text("#store") == "Shopping near BS5 6JS"

@@ -245,7 +245,7 @@ class Database:
             if key in raw:
                 setattr(travel, key, raw[key])
         settings = Settings(travel=travel)
-        for key in ("max_channels", "default_own_label_ok"):
+        for key in ("max_channels", "default_own_label_ok", "postcode", "browser"):
             if key in raw:
                 setattr(settings, key, raw[key])
         return settings
