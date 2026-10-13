@@ -19,7 +19,8 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS items (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL DEFAULT '',
     tags TEXT NOT NULL DEFAULT '[]', size REAL, unit TEXT NOT NULL DEFAULT 'each',
-    keywords TEXT NOT NULL DEFAULT '[]'
+    keywords TEXT NOT NULL DEFAULT '[]', search TEXT NOT NULL DEFAULT '',
+    exclude TEXT NOT NULL DEFAULT '[]'
 );
 CREATE TABLE IF NOT EXISTS stores (
     id TEXT PRIMARY KEY, chain TEXT NOT NULL, name TEXT NOT NULL, distance_miles REAL,
@@ -30,8 +31,12 @@ CREATE TABLE IF NOT EXISTS products (
     chain TEXT NOT NULL, id TEXT NOT NULL, item_id TEXT NOT NULL, name TEXT NOT NULL,
     brand TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT 'own', size REAL,
     unit TEXT NOT NULL DEFAULT 'each', price REAL NOT NULL, promo_price REAL,
-    loyalty_price REAL, multibuy_qty INTEGER, multibuy_price REAL, updated_at TEXT,
-    PRIMARY KEY (chain, id)
+    loyalty_price REAL, multibuy_qty INTEGER, multibuy_price REAL, url TEXT NOT NULL DEFAULT '',
+    updated_at TEXT, PRIMARY KEY (chain, id, item_id)
+);
+CREATE TABLE IF NOT EXISTS price_history (
+    chain TEXT NOT NULL, id TEXT NOT NULL, date TEXT NOT NULL, price REAL NOT NULL,
+    loyalty_price REAL, multibuy TEXT, PRIMARY KEY (chain, id, date)
 );
 CREATE TABLE IF NOT EXISTS pref_blacklist (product_key TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS pref_blocked (item_id TEXT, chain TEXT, PRIMARY KEY (item_id, chain));
@@ -61,7 +66,26 @@ class Database:
     def __init__(self, path: str | Path):
         self.conn = sqlite3.connect(str(path))
         self.conn.row_factory = sqlite3.Row
+        self._migrate()
         self.conn.executescript(SCHEMA)
+
+    def _migrate(self) -> None:
+        """Bring databases made by older versions up to date."""
+        columns = {r[1] for r in self.conn.execute("PRAGMA table_info(items)")}
+        if columns and "search" not in columns:
+            self.conn.execute("ALTER TABLE items ADD COLUMN search TEXT NOT NULL DEFAULT ''")
+            self.conn.execute("ALTER TABLE items ADD COLUMN exclude TEXT NOT NULL DEFAULT '[]'")
+        columns = {r[1] for r in self.conn.execute("PRAGMA table_info(products)")}
+        if columns and "url" not in columns:
+            self.conn.execute("ALTER TABLE products RENAME TO products_old")
+            self.conn.executescript(SCHEMA)
+            self.conn.execute(
+                "INSERT INTO products (chain, id, item_id, name, brand, tier, size, unit, price, promo_price, "
+                "loyalty_price, multibuy_qty, multibuy_price, updated_at) SELECT chain, id, item_id, name, brand, "
+                "tier, size, unit, price, promo_price, loyalty_price, multibuy_qty, multibuy_price, updated_at "
+                "FROM products_old")
+            self.conn.execute("DROP TABLE products_old")
+        self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
@@ -70,16 +94,16 @@ class Database:
 
     def upsert_item(self, item: Item) -> None:
         self.conn.execute(
-            "INSERT OR REPLACE INTO items VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (item.id, item.name, item.category, json.dumps(list(item.tags)), item.size, item.unit,
-             json.dumps(list(item.keywords))),
+             json.dumps(list(item.keywords)), item.search, json.dumps(list(item.exclude))),
         )
         self.conn.commit()
 
     def items(self) -> dict[str, Item]:
         return {
             r["id"]: Item(r["id"], r["name"], r["category"], tuple(json.loads(r["tags"])), r["size"],
-                          r["unit"], tuple(json.loads(r["keywords"])))
+                          r["unit"], tuple(json.loads(r["keywords"])), r["search"], tuple(json.loads(r["exclude"])))
             for r in self.conn.execute("SELECT * FROM items ORDER BY name")
         }
 
@@ -115,21 +139,42 @@ class Database:
             for r in self.conn.execute("SELECT * FROM stores ORDER BY name")
         ]
 
-    def upsert_products(self, products: Iterable[Product]) -> int:
-        rows = [(p.chain, p.id, p.item_id, p.name, p.brand, p.tier.value, p.size, p.unit, p.price,
-                 p.promo_price, p.loyalty_price, p.multibuy_qty, p.multibuy_price, _now())
-                for p in products]
-        self.conn.executemany("INSERT OR REPLACE INTO products VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
-        self.conn.commit()
-        return len(rows)
+    def upsert_products(self, products: Iterable[Product], commit: bool = True) -> int:
+        products = list(products)
+        now = _now()
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO products VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [(p.chain, p.id, p.item_id, p.name, p.brand, p.tier.value, p.size, p.unit, p.price, p.promo_price,
+              p.loyalty_price, p.multibuy_qty, p.multibuy_price, p.url, now) for p in products])
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO price_history VALUES (?, ?, ?, ?, ?, ?)",
+            [(p.chain, p.id, now[:10], p.price, p.loyalty_price,
+              f"{p.multibuy_qty} for {p.multibuy_price:.2f}" if p.multibuy_qty else None) for p in products])
+        if commit:
+            self.conn.commit()
+        return len(products)
 
-    def products(self) -> list[Product]:
+    def replace_products(self, chain: str, item_id: str, products: Iterable[Product]) -> int:
+        """Swap what we know about an item at a chain for a fresh search's results."""
+        self.conn.execute("DELETE FROM products WHERE chain = ? AND item_id = ?", (chain, item_id))
+        n = self.upsert_products(products, commit=False)
+        self.conn.commit()
+        return n
+
+    def products(self, item_id: str | None = None) -> list[Product]:
+        query, args = "SELECT * FROM products", ()
+        if item_id:
+            query, args = query + " WHERE item_id = ? ORDER BY chain, price", (item_id,)
         return [
             Product(r["id"], r["chain"], r["item_id"], r["name"], r["price"], r["brand"], Tier(r["tier"]),
                     r["size"], r["unit"], r["promo_price"], r["loyalty_price"], r["multibuy_qty"],
-                    r["multibuy_price"])
-            for r in self.conn.execute("SELECT * FROM products")
+                    r["multibuy_price"], r["url"])
+            for r in self.conn.execute(query, args)
         ]
+
+    def prices_updated(self) -> dict[str, str]:
+        """When each chain's prices were last refreshed."""
+        return dict(self.conn.execute("SELECT chain, MAX(updated_at) FROM products GROUP BY chain").fetchall())
 
     def load_catalogue(self, directory: str | Path) -> dict[str, int]:
         """Load items.json, stores.json and prices.csv from a directory (each optional)."""
@@ -139,7 +184,8 @@ class Database:
             raw = json.loads((directory / "items.json").read_text())
             for r in raw:
                 self.upsert_item(Item(r["id"], r["name"], r.get("category", ""), tuple(r.get("tags", ())),
-                                      r.get("size"), r.get("unit", "each"), tuple(r.get("keywords", ()))))
+                                      r.get("size"), r.get("unit", "each"), tuple(r.get("keywords", ())),
+                                      r.get("search", ""), tuple(r.get("exclude", ()))))
             counts["items"] = len(raw)
         if (directory / "stores.json").exists():
             raw = json.loads((directory / "stores.json").read_text())

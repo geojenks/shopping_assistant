@@ -1,8 +1,9 @@
 [
-  {"id": "tesco-extra", "chain": "tesco", "name": "Tesco Extra", "distance_miles": 2.5, "loyalty_member": true,
-   "delivery": {"fee": 4.50, "min_basket": 50, "under_min_charge": 4.00, "note": "fee varies by slot"}},
+  {"id": "tesco-extra", "chain": "tesco", "name": "Tesco Extra", "distance_miles": 2.5, "loyalty_member": true, "delivery": {"fee": 4.5, "min_basket": 50, "under_min_charge": 4.0, "note": "fee varies by slot"}},
   {"id": "aldi", "chain": "aldi", "name": "Aldi", "distance_miles": 1.8},
   {"id": "lidl", "chain": "lidl", "name": "Lidl", "distance_miles": 3.1},
-  {"id": "sainsburys", "chain": "sainsburys", "name": "Sainsbury's", "distance_miles": 4.0, "loyalty_member": true,
-   "delivery": {"fee": 5.00, "min_basket": 40, "under_min_charge": 7.00, "free_over": 100}}
+  {"id": "sainsburys", "chain": "sainsburys", "name": "Sainsbury's", "distance_miles": 4.0, "loyalty_member": true, "delivery": {"fee": 5.0, "min_basket": 40, "under_min_charge": 7.0, "free_over": 100}},
+  {"id": "waitrose", "chain": "waitrose", "name": "Waitrose", "distance_miles": 3.5, "delivery": {"fee": 4.5, "min_basket": 60, "under_min_charge": null, "note": "example terms: check yours"}},
+  {"id": "ms-food", "chain": "ms", "name": "M&S Foodhall", "distance_miles": 2.0},
+  {"id": "coop-local", "chain": "coop", "name": "Co-op", "distance_miles": 0.4, "loyalty_member": true}
 ]

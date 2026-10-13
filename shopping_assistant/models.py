@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass, field
 from enum import Enum
 
+from .units import to_base
 
 PACK_TOLERANCE = 0.1
 CHAIN_NAMES = {"sainsburys": "Sainsbury's", "ms": "M&S", "coop": "Co-op"}
@@ -39,6 +40,8 @@ class Item:
     size: float | None = None  # the pack size one "unit" on the list means, in `unit`
     unit: str = "each"
     keywords: tuple[str, ...] = ()  # phrases used to match till-receipt product names
+    search: str = ""  # what to type into supermarket search boxes (default: the name)
+    exclude: tuple[str, ...] = ()  # words that mean a product isn't this ("unsalted", "spreadable")
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,7 @@ class Product:
     loyalty_price: float | None = None  # Clubcard / Nectar price
     multibuy_qty: int | None = None  # "3 for £5" -> multibuy_qty=3, multibuy_price=5.0
     multibuy_price: float | None = None
+    url: str = ""
 
     @property
     def key(self) -> str:
@@ -85,9 +89,11 @@ class Product:
 
     def packs_for(self, item: Item, qty: float) -> int:
         """How many of this product cover `qty` of the generic item."""
-        if item.size and self.size and item.unit == self.unit:
+        want, want_unit = to_base(item.size or 0, item.unit)
+        have, have_unit = to_base(self.size or 0, self.unit)
+        if want and have and want_unit == have_unit:
             # Coming up to 10% short is fine (a 640g pack for a 650g item, 2 x 300g for 650g).
-            return max(1, math.ceil(qty * item.size / self.size * (1 - PACK_TOLERANCE)))
+            return max(1, math.ceil(qty * want / have * (1 - PACK_TOLERANCE)))
         return max(1, math.ceil(qty - 1e-9))
 
 

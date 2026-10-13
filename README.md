@@ -82,20 +82,71 @@ Tune it with `shop set per_stop 5`, `shop set max_distance_miles 4`,
 - `shop suggest crisps` suggests related items (same category or theme tag),
   deals first, then things you haven't tried.
 
+## Prices from the supermarkets
+
+`shop prices update` searches each supermarket's website for every item in
+your catalogue, using a real Chromium browser. It reads the results (shelf
+price, Clubcard/Nectar/member price, "Any 3 for £5", "3 for 2", "Was/Now",
+unavailable), keeps the products that really are that item, and stores them with
+a price history.
+
+| Chain | Where prices come from |
+|---|---|
+| Tesco | tesco.com grocery search |
+| Sainsbury's | sainsburys.co.uk grocery search |
+| Aldi | aldi.co.uk product search (shop prices; Aldi doesn't deliver) |
+| Waitrose | waitrose.com search |
+| M&S | M&S's range on Ocado (M&S sells food online through Ocado; shop prices can differ slightly) |
+| Co-op | shop.coop.co.uk search (least certain; probe it first) |
+
+**Run it on your own computer**, not on a server: supermarkets block traffic
+from data centres. Setup:
+
+```sh
+pip install -e '.[web]'
+playwright install chromium
+shop prices probe tesco semi skimmed milk --show-browser   # check each site once
+shop prices update                                        # everything: ~10s per search
+shop prices update --list                                 # just what's on the list, before a shop
+shop prices show butter                                   # what it found, with product keys
+shop pref blacklist tesco:254656543                       # never pick that one again
+```
+
+`probe` prints what it read from one search and saves the page and a screenshot
+next to the database (`probe/`), so if a supermarket changes its website or shows
+a "verify you're human" page, you can see what happened. `--show-browser` lets
+you watch, accept cookies, or pass a check by hand; the browser profile is kept,
+so you usually only do that once.
+
+Each item can have a `search` (what to type into the search box) and `exclude`
+words ("unsalted", "spreadable") in `items.json`. Results are kept if they
+contain the item's keywords, none of the excluded words, and a pack size within
+0.4–2.5× the item's usual size.
+
+To refresh prices weekly, schedule it, e.g. with cron (Sunday 7am):
+
+```
+0 7 * * 0  cd ~/shopping_assistant && SHOP_DB=data/private/shopping.db shop prices update >> data/private/prices.log 2>&1
+```
+
+Be considerate: it waits 2–5 seconds between pages (`--delay`), and it's for
+your household's own shopping. Check each supermarket's terms if you want to do
+more than that.
+
 ## Where the data comes from, honestly
 
 | Need | Source | Status |
 |---|---|---|
 | Your history | Tesco: *My account → request your data* on tesco.com gives every Clubcard transaction with items. Sainsbury's (Nectar), Asda, Morrisons: subject access request, or online order history. | Tesco importer written against the export's described shape, not a real file yet: tweak once we see one. |
 | Shopping list | Built in (`shop list`). Bring! has only an unofficial API (the `bring-api` Python package Home Assistant uses), which can break without notice. | Own list done. Bring! import is possible later. |
-| Prices | No supermarket offers a public price API. The options are scraping each site's product search, a third-party feed, or entering prices by hand. | Not done: **the next big piece of work.** |
+| Prices | No supermarket offers a public price API, so `shop prices` reads their search pages in a browser. | Written and tested against hand-made pages; **not yet run against the real sites**. |
 | Delivery | Tesco, Sainsbury's, Asda, Morrisons, Ocado, Waitrose deliver. Aldi and Lidl don't run their own delivery (Aldi is trialling Deliveroo "Shop & Deliver" at a few stores from October 2026). | Terms entered per store by hand; slot availability isn't checked. |
 
 ## Roadmap
 
-1. **Real prices.** Scraper/collector per chain feeding `prices.csv`, matching
-   products to items by name (and barcode where available). Run it on a schedule
-   from home rather than a datacentre IP.
+1. **Real prices: first run.** Probe each site from home and adjust
+   `shopping_assistant/prices/sites.py` (search URLs, product link patterns,
+   own-label names) where they've drifted.
 2. **Shared list on phones.** A small web app (PWA) over the same database so
    both of you can add "running low" / "run out" from the kitchen.
 3. **Better suggestions.** Rate products after trying them; feed ratings into

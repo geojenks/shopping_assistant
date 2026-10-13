@@ -42,5 +42,6 @@ class Preferences:
             # Asking for a brand implies own label isn't fine unless you say so.
             return not wanted_brands and self.default_own_label_ok
         if wanted_brands:
-            return product.brand.casefold() in wanted_brands
+            name = product.name.casefold()
+            return any(product.brand.casefold() == b or name.startswith(b) for b in wanted_brands)
         return True

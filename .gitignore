@@ -4,5 +4,8 @@ __pycache__/
 *.db
 *.html
 !docs/*.html
+!tests/fixtures/*.html
 # Your own exports and data stay local
 data/private/
+browser-profile/
+probe/

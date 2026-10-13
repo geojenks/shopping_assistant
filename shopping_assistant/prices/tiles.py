@@ -1,0 +1,106 @@
+"""Turn the text of a product tile on a search results page into prices and offers.
+
+Search pages differ in layout, but a product tile's text reads much the same
+everywhere: a name, a price, a unit price ("73p/litre"), and offer lines such as
+"Clubcard Price £1.50", "Any 3 for £5" or "Was £2.00 Now £1.50".
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+MONEY = re.compile(r"£\s?(\d+(?:\.\d{1,2})?)|(?<![\d.£])(\d{1,3})p\b", re.I)
+UNIT_PRICE = re.compile(r"(/|\bper\b|\beach\b(?!\s*for))", re.I)
+MULTIBUY = re.compile(r"\b(?:any\s+)?(\d+)\s+for\s+(?:£\s?(\d+(?:\.\d{1,2})?)|(\d{1,3})p\b)", re.I)
+X_FOR_Y = re.compile(r"\b(?:buy\s+)?(\d+)\s+for\s+(?:the\s+price\s+of\s+)?(\d+)\b(?!\s*(?:p\b|\.))", re.I)
+NOW = re.compile(r"\bnow\b", re.I)
+WAS = re.compile(r"\bwas\b", re.I)
+NOISE = re.compile(r"^(add|write a review|rest of shelf|quantity|sponsored|new|offer|view|save|"
+                   r"\d+(\.\d)? out of 5|\(\d+\)|reviews?|\d+ reviews?)$", re.I)
+
+
+@dataclass
+class Listing:
+    chain: str
+    id: str
+    name: str
+    url: str = ""
+    price: float | None = None
+    loyalty_price: float | None = None
+    multibuy_qty: int | None = None
+    multibuy_price: float | None = None
+    unit_price: str = ""
+    offers: list[str] = field(default_factory=list)
+    available: bool = True
+
+
+def _money(text: str) -> float | None:
+    m = MONEY.search(text)
+    if not m:
+        return None
+    return float(m[1]) if m[1] else int(m[2]) / 100
+
+
+def parse_tile(chain: str, product_id: str, name: str, text: str, url: str = "",
+               loyalty_words: tuple[str, ...] = ()) -> Listing:
+    listing = Listing(chain=chain, id=product_id, name=" ".join(name.split()), url=url)
+    lines = [" ".join(l.split()) for l in text.splitlines()]
+    lines = [l for l in lines if l and l.casefold() != listing.name.casefold() and not NOISE.match(l)]
+    loyalty = tuple(w.casefold() for w in loyalty_words)
+
+    for line in lines:
+        low = line.casefold()
+        if re.search(r"(currently )?(out of stock|unavailable|not available)", low):
+            listing.available = False
+            continue
+        if not MONEY.search(line) and not X_FOR_Y.search(line):
+            continue
+        if loyalty and any(w in low for w in loyalty):
+            listing.offers.append(line)
+            mb = MULTIBUY.search(line)
+            if mb:  # "Any 2 for £3 Clubcard Price": a members-only multibuy
+                listing.multibuy_qty = int(mb[1])
+                listing.multibuy_price = float(mb[2]) if mb[2] else int(mb[3]) / 100
+            else:
+                listing.loyalty_price = _money(line)
+            continue
+        mb = MULTIBUY.search(line)
+        if mb:
+            listing.offers.append(line)
+            listing.multibuy_qty = int(mb[1])
+            listing.multibuy_price = float(mb[2]) if mb[2] else int(mb[3]) / 100
+            continue
+        if WAS.search(line) and NOW.search(line):
+            listing.offers.append(line)
+            amounts = [_money(part) for part in NOW.split(line, maxsplit=1)]
+            if amounts[1] is not None:
+                listing.price = amounts[1]
+            continue
+        if WAS.search(line):  # "Was £2.00": the shelf price is shown elsewhere
+            listing.offers.append(line)
+            continue
+        if UNIT_PRICE.search(line) or "(" in line:
+            if not listing.unit_price:
+                listing.unit_price = line.strip("()")
+            continue
+        xy = X_FOR_Y.search(line)
+        if xy and not MONEY.search(line):
+            listing.offers.append(line)
+            continue
+        if listing.price is None:
+            amount = _money(line)
+            # The shelf price line is short: "£1.65", "Now £1.50", "£1.65 each".
+            if amount is not None and len(MONEY.sub("", line).strip(" -:")) <= 12:
+                listing.price = amount
+
+    # "3 for 2"-style offers need the shelf price.
+    if listing.price is not None and listing.multibuy_qty is None:
+        for line in listing.offers:
+            xy = X_FOR_Y.search(line)
+            if xy and not MONEY.search(line) and int(xy[1]) > int(xy[2]):
+                listing.multibuy_qty = int(xy[1])
+                listing.multibuy_price = round(int(xy[2]) * listing.price, 2)
+    if listing.loyalty_price is not None and listing.price is not None and listing.loyalty_price >= listing.price:
+        listing.loyalty_price = None
+    return listing
