@@ -49,8 +49,9 @@ class Site:
 SITES: dict[str, Site] = {s.chain: s for s in [
     Site(
         chain="tesco",
-        search_url="https://www.tesco.com/groceries/en-GB/search?query={query}",
-        product_link=r"/groceries/en-GB/products/(\d+)",
+        # Tesco moved from /groceries/en-GB/ to /shop/en-GB/ in 2026; accept both.
+        search_url="https://www.tesco.com/shop/en-GB/search?query={query}",
+        product_link=r"/(?:shop|groceries)/en-GB/products/(\d+)",
         premium=("tesco finest", "finest"),
         value=("stockwell", "tesco stockwell", "hearty food co", "ms molly's", "grower's harvest", "eastman's",
                "creamfields", "h.w. nevill's", "h. w. nevill's"),

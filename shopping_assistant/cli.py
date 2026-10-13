@@ -224,6 +224,7 @@ def cmd_prices(db: Database, args) -> None:
         with _fetcher(args) as fetcher:
             fetcher.open(site.url_for(query), site.extra_wait_ms)
             tiles = fetcher.tiles(site)
+            links = [] if tiles else fetcher.product_like_links()
             stem = f"{site.chain}-{query}".replace(" ", "_")
             save_dir.mkdir(parents=True, exist_ok=True)
             (save_dir / f"{stem}.html").write_text(fetcher.page.content(), encoding="utf-8")
@@ -239,6 +240,11 @@ def cmd_prices(db: Database, args) -> None:
             print(f"  £{l.price:5.2f}  {l.name}" + (f"  ({extra})" if extra else "") + f"  [{l.id}]")
         if not tiles:
             print("  Nothing found. Look at the screenshot: blocked, a cookie wall, or the site's links changed.")
+            print(f"  Looking for links matching {site.product_link!r}; product-like links on the page:")
+            for link in links:
+                print(f"    {link}")
+            if not links:
+                print("    (none)")
         print(f"  Saved page and screenshot to {save_dir}/{stem}.*")
         return
 

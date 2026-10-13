@@ -129,6 +129,11 @@ class BrowserFetcher:
         if wait_ms:
             self.page.wait_for_timeout(wait_ms)
 
+    def product_like_links(self, limit: int = 15) -> list[str]:
+        """Links that look like product pages, to fix a site's `product_link` when it finds nothing."""
+        return self.page.evaluate("""(limit) => [...new Set([...document.querySelectorAll('a[href]')]
+            .map(a => a.href.split('?')[0]).filter(h => /product/i.test(h)))].slice(0, limit)""", limit)
+
     def tiles(self, site: Site) -> list[dict]:
         return self.page.evaluate(EXTRACT_TILES, site.product_link)
 
