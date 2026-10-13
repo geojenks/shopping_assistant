@@ -16,7 +16,10 @@ _NUM = r"(\d+(?:\.\d+)?)"
 _MULTI = re.compile(rf"\b(\d+)\s*x\s*{_NUM}\s*(kg|g|ml|cl|l)\b", re.I)
 _MEASURE = re.compile(rf"(?<![\d.]){_NUM}\s*(kg|g|ml|cl|ltr|litres|litre|l|pints|pint|pt)\b", re.I)
 _COUNT = re.compile(r"\b(\d+)\s*(?:x\s*)?(?:pack|pk|eggs|tea ?bags|bags|rolls|pods|capsules|sachets|slices|"
-                    r"tablets|pieces|count|each)\b", re.I)
+                    r"tablets|pieces|count|each)\b"
+                    r"|\b(\d+)s\b"  # "80s"
+                    r"|\bx\s*(\d+)\b(?!\s*(?:kg|g|ml|cl|l)\b)"  # "Eggs Medium x12"
+                    r"|\b(\d+)\s*x\s+(?=[a-z])", re.I)  # "10 x Mixed Size Eggs"
 
 
 def to_base(qty: float, unit: str) -> tuple[float, str]:
@@ -37,7 +40,7 @@ def parse_sizes(name: str) -> list[tuple[float, str]]:
         sizes.append((float(m[1]), "each"))
         rest = rest.replace(m[0], " ")
     for m in _COUNT.finditer(rest):
-        sizes.append((float(m[1]), "each"))
+        sizes.append((float(next(g for g in m.groups() if g)), "each"))
     for m in _MEASURE.finditer(rest):
         sizes.append(to_base(float(m[1]), m[2]))
     seen: set[tuple[float, str]] = set()

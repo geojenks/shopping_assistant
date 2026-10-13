@@ -58,11 +58,12 @@ SITES: dict[str, Site] = {s.chain: s for s in [
         own=("tesco", "woodside farms", "boswell farms", "nightingale farms", "rosedene farms", "willow farms",
              "suntrail farms", "redmere farms", "fresh ideas", "romano"),
         loyalty_words=("clubcard price", "clubcard"),
+        note="Blocks servers (Akamai): works from a home connection. Tile layout not yet checked.",
     ),
     Site(
         chain="sainsburys",
-        search_url="https://www.sainsburys.co.uk/gol-ui/SearchResults/{query}",
-        product_link=r"/gol-ui/product/([^/?#]+)",
+        search_url="https://www.sainsburys.co.uk/groceries/search?searchTerm={query}",
+        product_link=r"/(?:groceries|gol-ui)/product/([^/?#]+)",
         premium=("sainsbury's taste the difference", "taste the difference"),
         value=("stamford street", "sainsbury's stamford street", "hubbard's"),
         own=("sainsbury's", "by sainsbury's", "so organic", "js "),
@@ -93,8 +94,8 @@ SITES: dict[str, Site] = {s.chain: s for s in [
     Site(
         chain="ms",
         # M&S food is sold online through Ocado. Shop prices are usually the same but can differ.
-        search_url="https://www.ocado.com/search?entry=M%26S+{query}",
-        product_link=r"/products/[^/?#]*?-(\d{4,})",
+        search_url="https://www.ocado.com/search?q=M%26S+{query}",
+        product_link=r"/products/[^?#]*?[/-](\d{4,})",
         premium=("m&s collection", "m&s our best ever", "m&s plant kitchen"),
         own=("m&s", "marks & spencer"),
         all_own_label=True,
@@ -104,8 +105,8 @@ SITES: dict[str, Site] = {s.chain: s for s in [
     ),
     Site(
         chain="ocado",
-        search_url="https://www.ocado.com/search?entry={query}",
-        product_link=r"/products/[^/?#]*?-(\d{4,})",
+        search_url="https://www.ocado.com/search?q={query}",
+        product_link=r"/products/[^?#]*?[/-](\d{4,})",
         own=("ocado", "m&s"),
         premium=("m&s collection",),
     ),
@@ -117,6 +118,6 @@ SITES: dict[str, Site] = {s.chain: s for s in [
         value=("co-op honest value", "honest value"),
         own=("co-op", "coop", "the co-operative"),
         loyalty_words=("member price", "members price", "member"),
-        note="Least certain: check with `shop prices probe coop milk` first.",
+        note="Blocks servers (Imperva): run from home. Search URL and layout not yet checked.",
     ),
 ]}

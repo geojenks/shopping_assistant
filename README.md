@@ -90,17 +90,17 @@ price, Clubcard/Nectar/member price, "Any 3 for £5", "3 for 2", "Was/Now",
 unavailable), keeps the products that really are that item, and stores them with
 a price history.
 
-| Chain | Where prices come from |
-|---|---|
-| Tesco | tesco.com grocery search |
-| Sainsbury's | sainsburys.co.uk grocery search |
-| Aldi | aldi.co.uk product search (shop prices; Aldi doesn't deliver) |
-| Waitrose | waitrose.com search |
-| M&S | M&S's range on Ocado (M&S sells food online through Ocado; shop prices can differ slightly) |
-| Co-op | shop.coop.co.uk search (least certain; probe it first) |
+| Chain | Where prices come from | Checked against the live site |
+|---|---|---|
+| Sainsbury's | sainsburys.co.uk grocery search | Yes, October 2026 |
+| Aldi | aldi.co.uk product search (shop prices; Aldi doesn't deliver) | Yes, October 2026 |
+| Waitrose | waitrose.com search | Yes, October 2026 |
+| M&S | M&S's range on Ocado (M&S sells food online through Ocado; shop prices can differ slightly) | Yes, October 2026 |
+| Tesco | tesco.com grocery search | No: Tesco blocks servers, so it needs a run from home |
+| Co-op | shop.coop.co.uk search | No: blocks servers too; search address unconfirmed |
 
-**Run it on your own computer**, not on a server: supermarkets block traffic
-from data centres. Setup:
+Sainsbury's, Aldi, Waitrose and Ocado work from a server; Tesco and Co-op only
+from a home connection, so running it on your own computer covers all six. Setup:
 
 ```sh
 pip install -e '.[web]'
@@ -139,7 +139,7 @@ more than that.
 |---|---|---|
 | Your history | Tesco: *My account → request your data* on tesco.com gives every Clubcard transaction with items. Sainsbury's (Nectar), Asda, Morrisons: subject access request, or online order history. | Tesco importer written against the export's described shape, not a real file yet: tweak once we see one. |
 | Shopping list | Built in (`shop list`). Bring! has only an unofficial API (the `bring-api` Python package Home Assistant uses), which can break without notice. | Own list done. Bring! import is possible later. |
-| Prices | No supermarket offers a public price API, so `shop prices` reads their search pages in a browser. | Written and tested against hand-made pages; **not yet run against the real sites**. |
+| Prices | No supermarket offers a public price API, so `shop prices` reads their search pages in a browser. | Working for Sainsbury's, Aldi, Waitrose and M&S; Tesco and Co-op need a run from home. |
 | Delivery | Tesco, Sainsbury's, Asda, Morrisons, Ocado, Waitrose deliver. Aldi and Lidl don't run their own delivery (Aldi is trialling Deliveroo "Shop & Deliver" at a few stores from October 2026). | Terms entered per store by hand; slot availability isn't checked. |
 
 ## Roadmap

@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import os
 import random
+import re
 import time
 from pathlib import Path
+from string import capwords
 
+from ..units import parse_sizes
 from .sites import Site
-from .tiles import Listing, parse_tile
+from .tiles import MONEY, Listing, parse_tile
 
 # For each link to a product page, climb to the smallest element that holds the
 # whole tile: it contains a price but no link to a different product.
@@ -33,13 +36,19 @@ EXTRACT_TILES = r"""
       if (money.test(node.innerText || '')) tile = node;
     }
     if (!tile) continue;
-    const name = (a.getAttribute('aria-label') || a.getAttribute('title') || a.innerText || '').trim()
-      || (tile.querySelector('h2, h3, [data-testid*="title"]')?.innerText || '').trim();
-    const prev = seen.get(href);
-    if (!prev || (!prev.name && name) || prev.text.length < tile.innerText.length)
-      seen.set(href, {href, name: name || prev?.name || '', text: tile.innerText});
+    // The link's own title or visible text names the product; aria-labels often add
+    // extras ("Featured, ..."), so they and image alt text are only fallbacks.
+    const strong = (a.getAttribute('title') || a.innerText || '').trim();
+    const weak = (a.querySelector('img[alt]')?.getAttribute('alt') || a.getAttribute('aria-label') || '').trim();
+    const prev = seen.get(href) || {href, name: '', weak: '', text: ''};
+    seen.set(href, {
+      href,
+      name: prev.name || strong,
+      weak: prev.weak || weak,
+      text: prev.text.length >= tile.innerText.length ? prev.text : tile.innerText,
+    });
   }
-  return [...seen.values()];
+  return [...seen.values()].map(t => ({href: t.href, name: t.name || t.weak, text: t.text}));
 }
 """
 
@@ -53,17 +62,43 @@ COOKIE_BUTTONS = (
 )
 
 
+SIZE_ONLY = re.compile(r"^\d+(\.\d+)?\s*(x\s*\d+(\.\d+)?\s*)?(kg|g|ml|cl|l|ltr|litres?|pints?|pk|pack|each|s)$", re.I)
+
+
+# Tile text that is never the product name.
+BOILERPLATE = re.compile(r"\bin (trolley|basket)\b|out of 5|^\(\d+\)$|^(view|add|remove|more|see)\b|"
+                         r"\bfor$|^(item price|price per unit|new lower price|featured|sponsored|offer)$", re.I)
+
+
+def name_from_lines(text: str) -> str:
+    """A product name from a tile whose link wraps several lines.
+
+    Aldi's read "COWBELLE / Semi Skimmed Milk 1.7% Fat / 2.272 l / (£0.73/1 L) / £1.65",
+    which becomes "Cowbelle Semi Skimmed Milk 1.7% Fat 2.272 l".
+    """
+    lines = [l.strip() for l in text.splitlines()
+             if l.strip() and not MONEY.search(l) and not BOILERPLATE.search(l.strip())]
+    sizes = [l for l in lines if SIZE_ONLY.match(l)]
+    rest = [l for l in lines if l not in sizes]
+    brand = rest[0] if len(rest) > 1 and rest[0].isupper() else ""
+    main = max((l for l in rest if l != brand), key=len, default="")
+    size = sizes[0] if sizes and not parse_sizes(main) else ""
+    return " ".join(filter(None, [capwords(brand), main, size]))
+
+
 def tiles_to_listings(site: Site, tiles: list[dict]) -> list[Listing]:
     listings = []
     for tile in tiles:
         name = (tile.get("name") or "").strip()
-        if not name or "\n" in name:
-            # No accessible name, or the link wraps the whole tile: the longest line
-            # without a price is nearly always the product name.
-            lines = [l.strip() for l in (name or tile["text"]).splitlines() if l.strip() and "£" not in l]
-            name = max(lines, key=len, default="")
+        if not name or "\n" in name or BOILERPLATE.search(name):
+            name = name_from_lines(name if "\n" in name else tile["text"])
+        name = name.replace("\u2019", "'")
         if not name:
             continue
+        if not parse_sizes(name):
+            # Waitrose and Ocado put the pack size on its own line ("6s", "125g").
+            size = next((l.strip() for l in tile["text"].splitlines() if SIZE_ONLY.match(l.strip())), "")
+            name = f"{name} {size}".strip()
         listing = parse_tile(site.chain, site.product_id(tile["href"]), name, tile["text"], tile["href"],
                              site.loyalty_words)
         if site.only_prefix and not listing.name.casefold().startswith(site.only_prefix):
@@ -79,14 +114,31 @@ class BrowserFetcher:
         from playwright.sync_api import sync_playwright  # optional dependency
 
         self._pw = sync_playwright().start()
-        launch: dict = {"headless": headless, "locale": "en-GB", "viewport": {"width": 1366, "height": 900}}
+        launch: dict = {
+            "headless": headless, "locale": "en-GB", "timezone_id": "Europe/London",
+            "viewport": {"width": 1366, "height": 900},
+            # Bot checks (Akamai at Sainsbury's and Waitrose) turn away browsers that say they're automated.
+            "args": ["--disable-blink-features=AutomationControlled"],
+        }
         if os.environ.get("SHOP_CHROMIUM"):
             launch["executable_path"] = os.environ["SHOP_CHROMIUM"]
+        if headless:
+            launch["user_agent"] = self._plain_user_agent(launch)
         self.context = self._pw.chromium.launch_persistent_context(str(profile_dir), **launch)
+        self.context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
         self.delay = delay
         self.save_dir = Path(save_dir) if save_dir else None
         self._last = 0.0
+
+    def _plain_user_agent(self, launch: dict) -> str:
+        """This browser's user agent without the "HeadlessChrome" giveaway."""
+        browser = self._pw.chromium.launch(headless=True, executable_path=launch.get("executable_path"))
+        try:
+            agent = browser.new_page().evaluate("navigator.userAgent")
+        finally:
+            browser.close()
+        return agent.replace("HeadlessChrome", "Chrome")
 
     def close(self) -> None:
         self.context.close()

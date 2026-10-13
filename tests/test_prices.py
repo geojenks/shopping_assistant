@@ -196,3 +196,90 @@ def test_browser_reads_whole_tile_links_and_filters_to_ms(browser):
         ("598765", "M&S Organic Semi Skimmed Milk 2 Pints", 1.35),
     ]
     assert (listings[1].multibuy_qty, listings[1].multibuy_price) == (3, 2.70)
+
+
+# --- real tile text captured from the sites (October 2026) ------------------
+
+from shopping_assistant.prices.browser import tiles_to_listings  # noqa: E402
+
+REAL_TILES = {
+    "sainsburys": [
+        {"href": "https://www.sainsburys.co.uk/groceries/product/sainsburys-british-semi-skimmed-milk-2-27l-4-pint",
+         "name": "Sainsbury's British Semi Skimmed Milk 2.27L (4 pint)",
+         "text": "Add to Favourites\nSainsbury's British Semi Skimmed Milk 2.27L (4 pint)\n4.6/5(2147)\nBRITISH\n"
+                 "ALDI PRICE MATCH*\n£1.6573p / ltr\nAdd"},
+        {"href": "https://www.sainsburys.co.uk/groceries/product/cravendale-filtered-fresh-semi-skimmed-milk-2l",
+         "name": "Cravendale Filtered Fresh Semi Skimmed Milk 2L Fresher for Longer",
+         "text": "Nectar price\nAdd to Favourites\nCravendale Filtered Fresh Semi Skimmed Milk 2L Fresher for Longer\n"
+                 "4.7/5(326)\nCHILLED\n£2.00£1.00 / ltr\n£2.65£1.33 / ltr\nAdd"},
+    ],
+    "aldi": [
+        {"href": "https://www.aldi.co.uk/product/cowbelle-semi-skimmed-milk-1-7-fat-000000000000416770",
+         "name": "COWBELLE\n\nSemi Skimmed Milk 1.7% Fat\n\n2.272 l\n\n(£0.73/1 L)\n\n£1.65",
+         "text": "COWBELLE\n\nSemi Skimmed Milk 1.7% Fat\n\n2.272 l\n\n(£0.73/1 L)\n\n£1.65"},
+    ],
+    "waitrose": [
+        {"href": "https://www.waitrose.com/ecom/products/essential-free-range-white-eggs/856706-653765-653766",
+         "name": "view product details for",
+         "text": "0 in trolley\n\n0 Essential Free Range White Eggs in trolley.\nview product details for\n"
+                 "Essential Free Range White Eggs\n6s\n4.5 out of 5 stars\n(1800)\n\nItem price\n\n£1.40\n\n"
+                 "Price per unit\n\n23.3p each\nAdd"},
+        {"href": "https://www.waitrose.com/ecom/products/cravendale-filtered-semi-skimmed-milk/062593-31787-31788",
+         "name": "view product details for",
+         "text": "0 in trolley\n\n0 Cravendale Filtered Fresher for Longer Semi-Skimmed Milk in trolley.\n"
+                 "view product details for\nCravendale Filtered Fresher for Longer Semi-Skimmed Milk\n2litre\n"
+                 "4.5 out of 5 stars\n(312)\n\nAny 2 for £4 Mix & Match\n\nItem price\n\n£2.90\n\nPrice per unit\n\n"
+                 "£1.45/litre\nAdd"},
+    ],
+    "ms": [
+        {"href": "https://www.ocado.com/products/m-s-curly-kale/518558011", "name": "M&S Curly Kale",
+         "text": "M&S Curly Kale\nLife 3d+\nProduct life guaranteed for 3 days excluding delivery day.\nVegetarian\n"
+                 "(103)\nRating, 3.8 out of 5 from 103 reviews.\nM&S Curly Kale\n125g\n"
+                 "Ordinarily £14.40 per kilo\n(£14.40 per kilo)\nPrice\n£1.80\nAdd"},
+    ],
+}
+
+
+def real(chain):
+    return [(l.id, l.name, l.price, l.loyalty_price, l.multibuy_qty, l.multibuy_price)
+            for l in tiles_to_listings(SITES[chain], REAL_TILES[chain])]
+
+
+def test_sainsburys_split_prices_and_nectar_badge():
+    assert real("sainsburys") == [
+        ("sainsburys-british-semi-skimmed-milk-2-27l-4-pint", "Sainsbury's British Semi Skimmed Milk 2.27L (4 pint)",
+         1.65, None, None, None),
+        ("cravendale-filtered-fresh-semi-skimmed-milk-2l", "Cravendale Filtered Fresh Semi Skimmed Milk 2L Fresher for Longer",
+         2.65, 2.00, None, None),
+    ]
+
+
+def test_aldi_whole_tile_link_gets_brand_and_size_in_name():
+    assert real("aldi") == [("000000000000416770", "Cowbelle Semi Skimmed Milk 1.7% Fat 2.272 l", 1.65, None, None, None)]
+    assert tier_and_brand(SITES["aldi"], "Cowbelle Semi Skimmed Milk 1.7% Fat 2.272 l") == (Tier.OWN, "")
+
+
+def test_waitrose_skips_boilerplate_and_takes_size_line():
+    assert real("waitrose") == [
+        ("856706-653765-653766", "Essential Free Range White Eggs 6s", 1.40, None, None, None),
+        ("062593-31787-31788", "Cravendale Filtered Fresher for Longer Semi-Skimmed Milk 2litre", 2.90, None, 2, 4.0),
+    ]
+
+
+def test_ocado_size_line_and_ordinarily_is_not_the_price():
+    assert real("ms") == [("518558011", "M&S Curly Kale 125g", 1.80, None, None, None)]
+
+
+def test_products_without_a_pack_size_are_skipped_when_the_item_has_one():
+    bananas = Item("bananas", "Bananas", size=5, unit="each", keywords=("bananas",))
+    assert not is_item(bananas, "Waitrose Fairtrade Loose Bananas")
+    assert is_item(bananas, "Essential Fairtrade Bananas 5s")
+
+
+@pytest.mark.parametrize("name, count", [
+    ("Sainsbury's British Free Range Eggs Medium x12", 12),
+    ("Stamford Street Co. 10 x Mixed Size British Free Range Eggs 536g", 10),
+    ("PG Tips Original Tea Bags 80s 232g", 80),
+])
+def test_counts_written_different_ways(name, count):
+    assert size_in(name, "each") == count

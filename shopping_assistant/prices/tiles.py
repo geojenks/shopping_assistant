@@ -15,7 +15,9 @@ UNIT_PRICE = re.compile(r"(/|\bper\b|\beach\b(?!\s*for))", re.I)
 MULTIBUY = re.compile(r"\b(?:any\s+)?(\d+)\s+for\s+(?:£\s?(\d+(?:\.\d{1,2})?)|(\d{1,3})p\b)", re.I)
 X_FOR_Y = re.compile(r"\b(?:buy\s+)?(\d+)\s+for\s+(?:the\s+price\s+of\s+)?(\d+)\b(?!\s*(?:p\b|\.))", re.I)
 NOW = re.compile(r"\bnow\b", re.I)
-WAS = re.compile(r"\bwas\b", re.I)
+WAS = re.compile(r"\b(was|ordinarily)\b", re.I)  # Ocado says "Ordinarily £2.65"
+# Prices shown side by side run together in page text: "£1.6573p / ltr" is £1.65 and 73p/ltr.
+GLUED = re.compile(r"(£\s?\d+\.\d{2}|(?<![\d.£])\d{1,3}p)(?=£|\d)")
 NOISE = re.compile(r"^(add|write a review|rest of shelf|quantity|sponsored|new|offer|view|save|"
                    r"\d+(\.\d)? out of 5|\(\d+\)|reviews?|\d+ reviews?)$", re.I)
 
@@ -45,9 +47,11 @@ def _money(text: str) -> float | None:
 def parse_tile(chain: str, product_id: str, name: str, text: str, url: str = "",
                loyalty_words: tuple[str, ...] = ()) -> Listing:
     listing = Listing(chain=chain, id=product_id, name=" ".join(name.split()), url=url)
-    lines = [" ".join(l.split()) for l in text.splitlines()]
+    lines = [" ".join(l.split()) for l in GLUED.sub(r"\1\n", text).splitlines()]
     lines = [l for l in lines if l and l.casefold() != listing.name.casefold() and not NOISE.match(l)]
     loyalty = tuple(w.casefold() for w in loyalty_words)
+    shelf: list[float] = []  # standalone price lines
+    loyalty_label = False  # a "Nectar price" badge with the price on a line of its own
 
     for line in lines:
         low = line.casefold()
@@ -55,6 +59,7 @@ def parse_tile(chain: str, product_id: str, name: str, text: str, url: str = "",
             listing.available = False
             continue
         if not MONEY.search(line) and not X_FOR_Y.search(line):
+            loyalty_label = loyalty_label or any(w in low for w in loyalty)
             continue
         if loyalty and any(w in low for w in loyalty):
             listing.offers.append(line)
@@ -88,11 +93,17 @@ def parse_tile(chain: str, product_id: str, name: str, text: str, url: str = "",
         if xy and not MONEY.search(line):
             listing.offers.append(line)
             continue
-        if listing.price is None:
-            amount = _money(line)
-            # The shelf price line is short: "£1.65", "Now £1.50", "£1.65 each".
-            if amount is not None and len(MONEY.sub("", line).strip(" -:")) <= 12:
-                listing.price = amount
+        amount = _money(line)
+        # A price line is short: "£1.65", "Now £1.50", "£1.65 each".
+        if amount is not None and len(MONEY.sub("", line).strip(" -:")) <= 12:
+            shelf.append(amount)
+
+    if listing.price is None and shelf:
+        if loyalty_label and listing.loyalty_price is None and len(shelf) >= 2:
+            # Two prices beside a loyalty badge: the card price and the usual price.
+            listing.loyalty_price, listing.price = min(shelf[:2]), max(shelf[:2])
+        else:
+            listing.price = shelf[0]
 
     # "3 for 2"-style offers need the shelf price.
     if listing.price is not None and listing.multibuy_qty is None:

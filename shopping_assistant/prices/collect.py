@@ -51,10 +51,12 @@ def is_item(item: Item, name: str) -> bool:
         return False
     if item.size:
         have = size_in(name, item.unit)
-        if have is not None:
-            ratio = have / to_base(item.size, item.unit)[0]
-            if not SIZE_RANGE[0] <= ratio <= SIZE_RANGE[1]:
-                return False
+        if have is None:
+            # Without a pack size we can't compare it fairly ("Loose Bananas 18p" is one banana).
+            return False
+        ratio = have / to_base(item.size, item.unit)[0]
+        if not SIZE_RANGE[0] <= ratio <= SIZE_RANGE[1]:
+            return False
     return True
 
 
