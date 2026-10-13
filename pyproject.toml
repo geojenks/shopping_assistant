@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shopping-assistant"
+version = "0.1.0"
+description = "Plan the cheapest sensible way to buy a shopping list across UK supermarkets"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+shop = "shopping_assistant.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["shopping_assistant*"]
