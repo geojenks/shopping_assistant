@@ -150,6 +150,8 @@ def make_handler(db_path: str, key: str, job: PlanJob, fetcher_factory):
             if url.path == "/api/plan":
                 with job.lock:
                     return self._json(job.state)
+            if url.path == "/api/catalogue":
+                return self._json(self._catalogue())
             return self._static(url.path.lstrip("/"))
 
         def do_POST(self):
@@ -163,7 +165,8 @@ def make_handler(db_path: str, key: str, job: PlanJob, fetcher_factory):
             db = Database(db_path)
             try:
                 if path == "/api/add":
-                    item = db.item_from_text(str(body["text"]))
+                    items = db.items()
+                    item = items[body["item_id"]] if body.get("item_id") in items else db.item_from_text(str(body["text"]))
                     db.add_to_list(item.id, float(body.get("qty") or 1), body.get("status") or "low",
                                    added_by=str(body.get("who") or ""))
                 elif path == "/api/update":
@@ -204,6 +207,35 @@ def make_handler(db_path: str, key: str, job: PlanJob, fetcher_factory):
             if kind.startswith("text/") or kind.endswith(("javascript", "json")):
                 kind += "; charset=utf-8"
             self._send(200, path.read_bytes(), kind)
+
+        def _catalogue(self) -> dict:
+            """Every item by aisle and shelf, with the cheapest price we know of for one of it."""
+            db = Database(db_path)
+            try:
+                items = db.items()
+                stores = db.stores()
+                chains = {s.chain for s in stores}
+                members = {s.chain for s in stores if s.loyalty_member}
+                prefs = db.preferences()
+                cheapest: dict[str, tuple[float, str]] = {}
+                for p in db.products():
+                    item = items.get(p.item_id)
+                    if item is None or p.chain not in chains or not prefs.allows(p):
+                        continue
+                    cost = p.cost(p.packs_for(item, 1), p.chain in members)
+                    if p.item_id not in cheapest or cost < cheapest[p.item_id][0]:
+                        cheapest[p.item_id] = (cost, p.chain)
+                aisles: dict[str, dict[str, list]] = {}
+                for item in items.values():
+                    shelf = aisles.setdefault(item.category or "Other", {}).setdefault(item.group or "", [])
+                    price = cheapest.get(item.id)
+                    shelf.append({"id": item.id, "name": item.name,
+                                  "from": {"price": price[0], "chain": price[1]} if price else None})
+                order = list(dict.fromkeys(i.category or "Other" for i in items.values()))
+                return {"aisles": [{"name": a, "shelves": [{"name": g, "items": aisles[a][g]} for g in aisles[a]]}
+                                   for a in order]}
+            finally:
+                db.close()
 
         def _state(self, db: Database | None = None) -> dict:
             own = db is None

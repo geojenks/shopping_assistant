@@ -17,6 +17,7 @@ from .importers import read_csv_history, read_tesco_export
 from .optimizer import plan_options, shortlist
 
 SAMPLE_DIR = Path(__file__).resolve().parent.parent / "data" / "sample"
+CATALOGUE_DIR = Path(__file__).resolve().parent / "catalogue"  # the starter meta-shop
 DEFAULT_DB = os.environ.get("SHOP_DB", "shopping.db")
 
 
@@ -28,10 +29,16 @@ def _item(db: Database, text: str):
 
 
 def cmd_init(db: Database, args) -> None:
+    if args.fresh:
+        db.clear_shopping_data()
+        print("Cleared items, prices, history, the list and preferences (kept shops and settings).")
     if args.sample:
         counts = db.load_catalogue(SAMPLE_DIR)
         db.add_purchases(read_csv_history(SAMPLE_DIR / "history.csv"))
         print(f"Loaded sample data: {counts}")
+    elif not db.items():
+        counts = db.load_catalogue(CATALOGUE_DIR)
+        print(f"Loaded the starter catalogue: {counts['items']} everyday items in aisles.")
     print(f"Database ready at {args.db}")
 
 
@@ -451,7 +458,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("init", help="create the database")
-    s.add_argument("--sample", action="store_true", help="load the sample catalogue, prices and history")
+    s.add_argument("--sample", action="store_true", help="demo data: made-up prices and history")
+    s.add_argument("--fresh", action="store_true",
+                   help="start again: clear items, prices, history, list and preferences; keep shops and settings")
     s.set_defaults(func=cmd_init)
 
     s = sub.add_parser("load", help="load items.json / stores.json / prices.csv from a directory")

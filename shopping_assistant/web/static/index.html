@@ -19,6 +19,10 @@
   <h1>Shopping</h1>
   <button id="who" class="ghost" type="button" aria-label="Who's using this phone">Who are you?</button>
 </header>
+<nav class="tabs" aria-label="Views">
+  <button id="tab-list" class="tab on" type="button">List</button>
+  <button id="tab-shop" class="tab" type="button">Shop</button>
+</nav>
 
 <main id="list-view">
   <form id="add" class="add" autocomplete="off">
@@ -45,6 +49,12 @@
     <h2>Just bought</h2>
     <ul id="recent" class="list recent"></ul>
   </section>
+</main>
+
+<main id="shop-view" hidden>
+  <input id="shop-search" class="search" type="search" placeholder="Search the shop…" aria-label="Search the shop">
+  <div id="aisles" class="aisles" role="tablist"></div>
+  <div id="shelves"></div>
 </main>
 
 <main id="plan-view" hidden>

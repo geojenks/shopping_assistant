@@ -89,3 +89,28 @@ def test_preferences_from_the_phone(app, tmp_path):
     app("/api/pref", {"action": "reset", "item_id": "kale"})
     prefs = db.preferences()
     assert not prefs.blocked and not prefs.own_label_ok
+
+
+def test_browse_the_shop_and_add_from_a_shelf(tmp_path):
+    from shopping_assistant.db import Database
+    db_path = str(tmp_path / "fresh.db")
+    main(["--db", db_path, "init"])  # the starter catalogue, nothing else
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(db_path, "", PlanJob(db_path), None))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    try:
+        with urllib.request.urlopen(base + "/api/catalogue") as r:
+            aisles = json.load(r)["aisles"]
+        names = [a["name"] for a in aisles]
+        assert names[0] == "Fruit & veg" and "Beer, wine & spirits" in names
+        snacks = next(a for a in aisles if a["name"] == "Snacks & sweets")
+        crisps = next(s for s in snacks["shelves"] if s["name"] == "Crisps")
+        assert any(i["id"] == "crisps-prawn-cocktail" for i in crisps["items"])
+        request = urllib.request.Request(base + "/api/add", headers={"Content-Type": "application/json"},
+                                         data=json.dumps({"item_id": "crisps-prawn-cocktail", "status": "want"}).encode())
+        with urllib.request.urlopen(request) as r:
+            [entry] = json.load(r)["list"]
+        assert (entry["item_id"], entry["status"]) == ("crisps-prawn-cocktail", "want")
+    finally:
+        httpd.shutdown()
+    assert Database(db_path).purchases() == []  # no made-up history

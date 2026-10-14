@@ -42,6 +42,7 @@ class Item:
     keywords: tuple[str, ...] = ()  # phrases used to match till-receipt product names
     search: str = ""  # what to type into supermarket search boxes (default: the name)
     exclude: tuple[str, ...] = ()  # words that mean a product isn't this ("unsalted", "spreadable")
+    group: str = ""  # shelf within the aisle (`category`): "Crisps" in "Snacks & sweets"
 
 
 @dataclass(frozen=True)

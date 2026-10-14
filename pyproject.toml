@@ -21,3 +21,4 @@ include = ["shopping_assistant*"]
 
 [tool.setuptools.package-data]
 "shopping_assistant.web" = ["static/*"]
+"shopping_assistant" = ["catalogue/*.json"]

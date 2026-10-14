@@ -57,6 +57,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 .meta { font-size: 13px; color: var(--muted); }
 .status { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: var(--low-bg); }
 .status.out { background: var(--out-bg); color: var(--out); }
+.status.want { background: var(--line); color: var(--muted); }
 .controls { display: flex; align-items: center; gap: 2px; }
 .step { width: 36px; height: 36px; border-radius: 10px; font-size: 20px; color: var(--accent); }
 .qty { min-width: 22px; text-align: center; font-variant-numeric: tabular-nums; }
@@ -109,3 +110,18 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 .sheet-title a { color: var(--accent); }
 .sheet-actions { display: grid; gap: 8px; }
 .sheet-action { padding: 14px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); text-align: left; }
+
+.tabs { max-width: 640px; margin: 4px auto 0; padding: 0 16px; display: flex; gap: 6px; }
+.tab { flex: 1; padding: 10px; border-radius: 12px; font-weight: 650; color: var(--muted); background: transparent; border: 1px solid var(--line); }
+.tab.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.search {
+  width: 100%; font: inherit; font-size: 16px; padding: 12px 14px; border-radius: 12px; margin-top: 12px;
+  border: 1px solid var(--line); background: var(--card); color: var(--fg);
+}
+.aisles { display: flex; gap: 8px; overflow-x: auto; padding: 12px 0 4px; scrollbar-width: none; margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+.aisles::-webkit-scrollbar { display: none; }
+.aisle { white-space: nowrap; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); }
+.aisle.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.shop-row { grid-template-columns: 1fr auto; padding-left: 14px; }
+.shop-row.in { border-color: var(--accent); }
+.add-one { padding: 8px 14px; border-radius: 10px; background: var(--accent); color: var(--accent-fg); font-weight: 650; }

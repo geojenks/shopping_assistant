@@ -34,6 +34,7 @@ CHAINS = {
     "ms": (("m&s", "marks & spencer", "marks and spencer"), ("m&s food to go",)),
     "iceland": (("iceland",), ("food warehouse",)),
     "morrisons": (("morrisons",), ("daily",)),
+    "asda": (("asda",), ("express", "on the move")),
 }
 
 # Rough delivery terms (October 2026) so delivery can be compared at all. Fees vary by slot:
@@ -45,6 +46,7 @@ DELIVERY = {
     "ms": DeliveryTerms(fee=4.00, min_basket=40, note="via Ocado; estimate: fee varies by slot"),
     "iceland": DeliveryTerms(fee=0.00, min_basket=40, note="estimate: free delivery over £40"),
     "morrisons": DeliveryTerms(fee=4.50, min_basket=40, note="estimate: fee varies by slot"),
+    "asda": DeliveryTerms(fee=4.50, min_basket=40, note="estimate: fee varies by slot"),
 }
 
 

@@ -4,6 +4,8 @@ const $ = sel => document.querySelector(sel);
 const money = n => "£" + Number(n).toFixed(2);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 
+const CHAIN = {tesco: "Tesco", sainsburys: "Sainsbury's", aldi: "Aldi", waitrose: "Waitrose", ms: "M&S", coop: "Co-op",
+  iceland: "Iceland", morrisons: "Morrisons", asda: "Asda"};
 let state = {list: [], due: [], recent: [], catalogue: []};
 let who = "";
 try { who = localStorage.getItem("who") || ""; } catch (e) { /* private mode */ }
@@ -20,7 +22,11 @@ async function api(path, body) {
 
 // --- the list -------------------------------------------------------------
 
+const STATUS_LABEL = {want: "to buy", low: "running low", out: "RUN OUT"};
+const NEXT_STATUS = {want: "low", low: "out", out: "want"};
+
 function render() {
+  renderShop();
   $("#who").textContent = who ? `I'm ${who}` : "Who are you?";
   $("#catalogue").innerHTML = state.catalogue.map(n => `<option value="${esc(n)}">`).join("");
 
@@ -37,8 +43,8 @@ function render() {
       <div class="name">
         <strong>${esc(e.name)}</strong>
         <span class="meta">
-          <button class="status ${e.status === "out" ? "out" : ""}" data-toggle="${esc(e.item_id)}"
-            aria-label="Switch between running low and run out">${e.status === "out" ? "RUN OUT" : "running low"}</button>
+          <button class="status ${e.status}" data-toggle="${esc(e.item_id)}"
+            aria-label="Change between to buy, running low and run out">${STATUS_LABEL[e.status] || "to buy"}</button>
           ${e.who ? " · " + esc(e.who) : ""}
         </span>
       </div>
@@ -78,12 +84,14 @@ document.addEventListener("click", e => {
   const t = e.target.closest("button");
   if (!t) return;
   const item = t.dataset;
-  if (item.add) act("/api/add", {text: item.add, qty: Number(item.qty) || 1, who});
+  if (item.aisle) { aisle = item.aisle; renderShop(); window.scrollTo(0, 0); }
+  else if (item.addId) act("/api/add", {item_id: item.addId, text: item.addId, status: "want", who});
+  else if (item.add) act("/api/add", {text: item.add, qty: Number(item.qty) || 1, who});
   else if (item.bought) act("/api/bought", {item_id: item.bought, who});
   else if (item.undo) act("/api/undo", {purchase_id: Number(item.undo)});
   else if (item.toggle) {
     const entry = state.list.find(x => x.item_id === item.toggle);
-    act("/api/update", {item_id: item.toggle, status: entry.status === "out" ? "low" : "out"});
+    act("/api/update", {item_id: item.toggle, status: NEXT_STATUS[entry.status] || "low"});
   } else if (item.qtyFor) {
     const entry = state.list.find(x => x.item_id === item.qtyFor);
     const qty = entry.qty + Number(item.delta);
@@ -104,12 +112,62 @@ $("#who").addEventListener("click", () => {
 
 let polling = null;
 
-function showPlanView(on) {
-  $("#list-view").hidden = on;
-  $("#plan-view").hidden = !on;
-  $("#bar").hidden = on;
+function showView(name) {
+  $("#list-view").hidden = name !== "list";
+  $("#shop-view").hidden = name !== "shop";
+  $("#plan-view").hidden = name !== "plan";
+  $("#bar").hidden = name === "plan";
+  document.querySelector(".tabs").hidden = name === "plan";
+  $("#tab-list").classList.toggle("on", name === "list");
+  $("#tab-shop").classList.toggle("on", name === "shop");
   window.scrollTo(0, 0);
 }
+const showPlanView = on => showView(on ? "plan" : "list");
+
+// --- browsing the shop --------------------------------------------------------
+
+let catalogue = null;
+let aisle = null;
+
+async function loadCatalogue() {
+  try { catalogue = await api("/api/catalogue"); } catch (e) { return; }
+  if (!aisle && catalogue.aisles.length) aisle = catalogue.aisles[0].name;
+  renderShop();
+}
+
+function itemCard(it) {
+  const entry = state.list.find(e => e.item_id === it.id);
+  const price = it.from ? `from ${money(it.from.price)} at ${esc(CHAIN[it.from.chain] || it.from.chain)}` : "";
+  const control = entry
+    ? `<div class="controls">
+         <button class="step" data-qty-for="${esc(it.id)}" data-delta="-1" aria-label="One fewer">−</button>
+         <span class="qty">${entry.qty}</span>
+         <button class="step" data-qty-for="${esc(it.id)}" data-delta="1" aria-label="One more">+</button></div>`
+    : `<button class="add-one" data-add-id="${esc(it.id)}" aria-label="Add ${esc(it.name)}">Add</button>`;
+  return `<li class="row shop-row ${entry ? "in" : ""}"><div class="name"><strong>${esc(it.name)}</strong>
+    <span class="meta">${price}</span></div>${control}</li>`;
+}
+
+function renderShop() {
+  if (!catalogue) return;
+  const q = $("#shop-search").value.trim().toLowerCase();
+  $("#aisles").hidden = !!q;
+  $("#aisles").innerHTML = catalogue.aisles.map(a =>
+    `<button class="aisle ${a.name === aisle ? "on" : ""}" data-aisle="${esc(a.name)}">${esc(a.name)}</button>`).join("");
+  const aisles = q ? catalogue.aisles : catalogue.aisles.filter(a => a.name === aisle);
+  const html = aisles.map(a => a.shelves.map(sh => {
+    const items = sh.items.filter(it => !q || it.name.toLowerCase().includes(q));
+    if (!items.length) return "";
+    return `<h2>${esc(q ? `${a.name} · ${sh.name}` : sh.name || a.name)}</h2><ul class="list">${items.map(itemCard).join("")}</ul>`;
+  }).join("")).join("");
+  $("#shelves").innerHTML = html || (q
+    ? `<p class="muted">Nothing called “${esc(q)}”. <button class="ghost" data-add="${esc(q)}">Add “${esc(q)}” to the list</button></p>`
+    : "");
+}
+
+$("#shop-search").addEventListener("input", renderShop);
+$("#tab-list").addEventListener("click", () => { showView("list"); refresh(); });
+$("#tab-shop").addEventListener("click", () => { showView("shop"); loadCatalogue(); });
 
 async function compare(refresh) {
   showPlanView(true);
@@ -172,8 +230,6 @@ function renderPlan(result) {
 }
 
 // Tap a product in the comparison to say what you think of it.
-const CHAIN = {tesco: "Tesco", sainsburys: "Sainsbury's", aldi: "Aldi", waitrose: "Waitrose", ms: "M&S", coop: "Co-op",
-  iceland: "Iceland", morrisons: "Morrisons"};
 
 $("#rows").addEventListener("click", e => {
   const b = e.target.closest(".choice");
@@ -210,6 +266,6 @@ $("#back").addEventListener("click", () => { showPlanView(false); refresh(); });
 // --- keep both phones in step -------------------------------------------------
 
 refresh();
-setInterval(() => { if (!document.hidden && !$("#list-view").hidden) refresh(); }, 5000);
+setInterval(() => { if (!document.hidden && $("#plan-view").hidden) refresh(); }, 5000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});

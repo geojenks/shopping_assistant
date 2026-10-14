@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS items (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL DEFAULT '',
     tags TEXT NOT NULL DEFAULT '[]', size REAL, unit TEXT NOT NULL DEFAULT 'each',
     keywords TEXT NOT NULL DEFAULT '[]', search TEXT NOT NULL DEFAULT '',
-    exclude TEXT NOT NULL DEFAULT '[]'
+    exclude TEXT NOT NULL DEFAULT '[]', shelf TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS stores (
     id TEXT PRIMARY KEY, chain TEXT NOT NULL, name TEXT NOT NULL, distance_miles REAL,
@@ -77,6 +77,9 @@ class Database:
         if columns and "search" not in columns:
             self.conn.execute("ALTER TABLE items ADD COLUMN search TEXT NOT NULL DEFAULT ''")
             self.conn.execute("ALTER TABLE items ADD COLUMN exclude TEXT NOT NULL DEFAULT '[]'")
+        columns = {r[1] for r in self.conn.execute("PRAGMA table_info(items)")}
+        if columns and "shelf" not in columns:
+            self.conn.execute("ALTER TABLE items ADD COLUMN shelf TEXT NOT NULL DEFAULT ''")
         columns = {r[1] for r in self.conn.execute("PRAGMA table_info(stores)")}
         if columns and "lat" not in columns:
             self.conn.execute("ALTER TABLE stores ADD COLUMN lat REAL")
@@ -100,17 +103,18 @@ class Database:
 
     def upsert_item(self, item: Item) -> None:
         self.conn.execute(
-            "INSERT OR REPLACE INTO items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (item.id, item.name, item.category, json.dumps(list(item.tags)), item.size, item.unit,
-             json.dumps(list(item.keywords)), item.search, json.dumps(list(item.exclude))),
+             json.dumps(list(item.keywords)), item.search, json.dumps(list(item.exclude)), item.group),
         )
         self.conn.commit()
 
     def items(self) -> dict[str, Item]:
         return {
             r["id"]: Item(r["id"], r["name"], r["category"], tuple(json.loads(r["tags"])), r["size"],
-                          r["unit"], tuple(json.loads(r["keywords"])), r["search"], tuple(json.loads(r["exclude"])))
-            for r in self.conn.execute("SELECT * FROM items ORDER BY name")
+                          r["unit"], tuple(json.loads(r["keywords"])), r["search"], tuple(json.loads(r["exclude"])),
+                          r["shelf"])
+            for r in self.conn.execute("SELECT * FROM items ORDER BY rowid")  # catalogue order: aisle by aisle
         }
 
     def find_item(self, text: str) -> Item | None:
@@ -203,7 +207,7 @@ class Database:
             for r in raw:
                 self.upsert_item(Item(r["id"], r["name"], r.get("category", ""), tuple(r.get("tags", ())),
                                       r.get("size"), r.get("unit", "each"), tuple(r.get("keywords", ())),
-                                      r.get("search", ""), tuple(r.get("exclude", ()))))
+                                      r.get("search", ""), tuple(r.get("exclude", ())), r.get("group", "")))
             counts["items"] = len(raw)
         if (directory / "stores.json").exists():
             raw = json.loads((directory / "stores.json").read_text())
@@ -216,6 +220,13 @@ class Database:
         if (directory / "prices.csv").exists():
             counts["products"] = self.upsert_products(read_prices_csv(directory / "prices.csv"))
         return counts
+
+    def clear_shopping_data(self) -> None:
+        """Everything learnt or entered about shopping; shops and settings stay."""
+        for table in ("items", "products", "price_history", "purchases", "list_entries", "name_map",
+                      "pref_blacklist", "pref_blocked", "pref_own_label", "pref_brands"):
+            self.conn.execute(f"DELETE FROM {table}")
+        self.conn.commit()
 
     # --- preferences -----------------------------------------------------
 
@@ -307,7 +318,7 @@ class Database:
     def shopping_list(self) -> list[ListEntry]:
         return [
             ListEntry(r["item_id"], r["qty"], r["status"], r["note"], r["added_by"], r["id"])
-            for r in self.conn.execute("SELECT * FROM list_entries ORDER BY status = 'low', added_at")
+            for r in self.conn.execute("SELECT * FROM list_entries ORDER BY status != 'out', added_at")
         ]
 
     def update_list_entry(self, item_id: str, qty: float | None = None, status: str | None = None) -> None:
