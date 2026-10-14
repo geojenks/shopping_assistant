@@ -40,6 +40,16 @@ Without installing: `python -m shopping_assistant ...`. The database is
 **The sample prices are made up** to exercise the planner. They are roughly the
 right shape but not real.
 
+## Starting from blank
+
+`shop init` creates the database with the starter catalogue: about 200 everyday
+items in aisles (Fruit & veg, Dairy, Bakery, Food cupboard, Frozen, Snacks,
+Drinks, Beer, wine & spirits, Household, Health & beauty), each with a usual
+pack size and words that rule out look-alikes. No made-up history or prices.
+If you tried the demo, `shop init --fresh` clears it and keeps your shops and
+settings. Anything you add that isn't in the catalogue becomes a new item.
+The catalogue is `shopping_assistant/catalogue/items.json`.
+
 ## On your phones
 
 ```sh
@@ -50,6 +60,8 @@ It prints a link like `http://192.168.1.20:8765/?key=…`. Open it once on each
 phone (it then remembers you), then **Share → Add to Home Screen** (iPhone) or
 **⋮ → Add to Home screen** (Android) and it opens like an app. Both of you can:
 
+- browse the **Shop** tab by aisle (or search it) and add things to the basket,
+  each showing the cheapest price found so far
 - add things as you run low or run out, with suggestions from the catalogue
   (anything new becomes a new item)
 - change quantities, tick things off as bought (with undo), and see who added what
