@@ -169,6 +169,7 @@ class BrowserFetcher:
         self.delay = delay
         self.save_dir = Path(save_dir) if save_dir else None
         self.postcode = postcode
+        self.log: list[str] = []  # what special steps did (postcode pages), for `probe`
         self._last = 0.0
 
     def _launch(self, profile_dir: str | Path, setup: BrowserSetup) -> None:
@@ -218,15 +219,20 @@ class BrowserFetcher:
             time.sleep(wait)
         self._last = time.monotonic()
 
-    def _accept_cookies(self) -> None:
-        for selector in COOKIE_BUTTONS:
-            button = self.page.locator(selector).first
-            try:
-                if button.is_visible(timeout=500):
+    def _accept_cookies(self, wait_ms: int = 0) -> bool:
+        """Click the cookie banner's accept button if there is one (waiting up to `wait_ms` for it)."""
+        either = self.page.locator(", ".join(COOKIE_BUTTONS)).first
+        try:
+            if wait_ms:
+                either.wait_for(state="visible", timeout=wait_ms)
+            for selector in COOKIE_BUTTONS:
+                button = self.page.locator(selector).first
+                if button.is_visible():
                     button.click(timeout=2000)
-                    return
-            except Exception:
-                continue
+                    return True
+        except Exception:
+            pass
+        return False
 
     def _settle(self) -> None:
         self._accept_cookies()
@@ -238,17 +244,31 @@ class BrowserFetcher:
     def _enter_postcode(self, site: Site) -> bool:
         """Get past a "which store are you near?" page (Co-op). True if there was one."""
         box = self.page.locator(site.postcode_input).first
-        self._accept_cookies()
         try:
             # The box is drawn by the page's scripts after it loads, so give it a moment.
             box.wait_for(state="visible", timeout=8000)
         except Exception:
+            self.log.append(f"no postcode box on {self.page.url}")
             return False
         if not self.postcode:
             raise SiteNeedsSetup(f"{site.chain} asks for a postcode first: shop set postcode \"AB1 2CD\"")
+        self.log.append(f"postcode box found on {self.page.url}")
+        if self._accept_cookies(wait_ms=3000):
+            self.log.append("accepted cookies")
         box.fill(self.postcode)
-        box.press("Enter")
+        submit = box.locator("xpath=ancestor::form[1]//button[@type='submit']").first
+        try:
+            submit.click(timeout=3000)
+            self.log.append(f"entered {self.postcode} and pressed the form's button")
+        except Exception:
+            box.press("Enter")
+            self.log.append(f"entered {self.postcode} and pressed Enter")
+        try:
+            box.wait_for(state="hidden", timeout=15_000)  # moved on, whether a new page or the same one redrawn
+        except Exception:
+            pass
         self._settle()
+        self.log.append(f"now on {self.page.url} ({self.page.title()!r})")
         self.snapshot(f"{site.chain}-after-postcode")
         return True
 

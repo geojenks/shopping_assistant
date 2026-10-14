@@ -326,6 +326,8 @@ def cmd_prices(db: Database, args) -> None:
             save_dir.mkdir(parents=True, exist_ok=True)
             (save_dir / f"{stem}.html").write_text(fetcher.page.content(), encoding="utf-8")
             fetcher.page.screenshot(path=str(save_dir / f"{stem}.png"))
+            for step in fetcher.log:
+                print(f"  - {step}")
             print(f"{fetcher.page.url}\n  page title: {fetcher.page.title()!r}")
         listings = tiles_to_listings(site, tiles)
         print(f"  {len(tiles)} product tiles found, {len(listings)} with a price")
