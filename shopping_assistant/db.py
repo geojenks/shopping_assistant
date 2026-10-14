@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import sqlite3
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable
 
@@ -270,6 +271,10 @@ class Database:
             settings.home = tuple(raw["home"])
         return settings
 
+    def get_setting(self, key: str, default=None):
+        row = self.conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return json.loads(row[0]) if row else default
+
     def set_setting(self, key: str, value) -> None:
         self.conn.execute("INSERT OR REPLACE INTO settings VALUES (?, ?)", (key, json.dumps(value)))
         self.conn.commit()
@@ -304,6 +309,53 @@ class Database:
             ListEntry(r["item_id"], r["qty"], r["status"], r["note"], r["added_by"], r["id"])
             for r in self.conn.execute("SELECT * FROM list_entries ORDER BY status = 'low', added_at")
         ]
+
+    def update_list_entry(self, item_id: str, qty: float | None = None, status: str | None = None) -> None:
+        if qty is not None:
+            self.conn.execute("UPDATE list_entries SET qty = ? WHERE item_id = ?", (qty, item_id))
+        if status is not None:
+            self.conn.execute("UPDATE list_entries SET status = ? WHERE item_id = ?", (status, item_id))
+        self.conn.commit()
+
+    def item_from_text(self, text: str) -> Item:
+        """The catalogue item `text` means, adding a new one if there isn't one."""
+        text = " ".join(text.split())
+        item = self.find_item(text)
+        if item is None:
+            base = re.sub(r"[^a-z0-9]+", "-", text.casefold()).strip("-") or "item"
+            item_id, n = base, 2
+            while item_id in self.items():
+                item_id, n = f"{base}-{n}", n + 1
+            item = Item(item_id, text[:1].upper() + text[1:], keywords=(text,), search=text)
+            self.upsert_item(item)
+        return item
+
+    def mark_bought(self, item_id: str, who: str = "") -> int:
+        """Take an item off the list and remember buying it (for "usually buy" suggestions)."""
+        entry = self.conn.execute("SELECT qty FROM list_entries WHERE item_id = ?", (item_id,)).fetchone()
+        qty = entry["qty"] if entry else 1.0
+        self.conn.execute("DELETE FROM list_entries WHERE item_id = ?", (item_id,))
+        cur = self.conn.execute(
+            "INSERT INTO purchases (date, chain, product_name, qty, price, item_id, source, txn_id, line_no) "
+            "VALUES (?, '', ?, ?, 0, ?, 'list', ?, 0)",
+            (_now()[:10], who, qty, item_id, f"{_now()}-{item_id}"))
+        self.conn.commit()
+        return cur.lastrowid
+
+    def recently_bought(self, limit: int = 8) -> list[tuple[int, str, float]]:
+        """(purchase id, item id, qty) ticked off the list in the last two days, newest first."""
+        since = (datetime.now() - timedelta(days=2)).isoformat()[:10]
+        return [(r[0], r[1], r[2]) for r in self.conn.execute(
+            "SELECT id, item_id, qty FROM purchases WHERE source = 'list' AND date >= ? ORDER BY id DESC LIMIT ?",
+            (since, limit))]
+
+    def undo_bought(self, purchase_id: int) -> None:
+        row = self.conn.execute("SELECT item_id, qty FROM purchases WHERE id = ? AND source = 'list'",
+                                (purchase_id,)).fetchone()
+        if row:
+            self.conn.execute("DELETE FROM purchases WHERE id = ?", (purchase_id,))
+            self.conn.commit()
+            self.add_to_list(row["item_id"], row["qty"])
 
     # --- purchase history ------------------------------------------------
 

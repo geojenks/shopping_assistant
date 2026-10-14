@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shopping List</title>
+<meta name="theme-color" content="#1a7f5a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Shopping">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <h1>Shopping</h1>
+  <button id="who" class="ghost" type="button" aria-label="Who's using this phone">Who are you?</button>
+</header>
+
+<main id="list-view">
+  <form id="add" class="add" autocomplete="off">
+    <input id="add-text" list="catalogue" placeholder="Add something we need…" aria-label="Item" enterkeyhint="done">
+    <datalist id="catalogue"></datalist>
+    <div class="add-buttons">
+      <button type="submit" data-status="low" class="pill">Running low</button>
+      <button type="submit" data-status="out" class="pill out">Run out</button>
+    </div>
+  </form>
+
+  <section id="due-wrap" hidden>
+    <h2>Usually bought around now</h2>
+    <div id="due" class="chips"></div>
+  </section>
+
+  <section>
+    <h2 id="list-title">We need</h2>
+    <p id="empty" class="muted" hidden>Nothing on the list. Add things as you run low.</p>
+    <ul id="list" class="list"></ul>
+  </section>
+
+  <section id="recent-wrap" hidden>
+    <h2>Just bought</h2>
+    <ul id="recent" class="list recent"></ul>
+  </section>
+</main>
+
+<main id="plan-view" hidden>
+  <button id="back" class="ghost back" type="button">← List</button>
+  <div id="plan-status" class="status-line"></div>
+  <div id="options" class="options"></div>
+  <label id="all-wrap" class="toggle" hidden><input type="checkbox" id="show-all"> Show every item</label>
+  <div id="rows" class="rows"></div>
+</main>
+
+<footer class="bar" id="bar">
+  <button id="compare" class="primary" type="button">Find the best shop</button>
+  <button id="compare-saved" class="ghost small" type="button">use saved prices</button>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -190,15 +190,50 @@ def _sites(chains: str | None, db: Database):
 
 def _fetcher(args, db: Database, save_dir: Path | None = None):
     try:
-        from .prices.browser import BrowserFetcher, BrowserSetup
+        return _make_fetcher(args.db, db, args.show_browser, args.delay, save_dir)
     except ImportError:
         sys.exit("Fetching prices needs Playwright:  pip install -e '.[web]' && playwright install chromium")
+
+
+def _make_fetcher(db_path: str, db: Database, show_browser: bool = False, delay: float = 2.0,
+                  save_dir: Path | None = None):
+    from .prices.browser import BrowserFetcher, BrowserSetup
+
     settings = db.settings()
     setup = BrowserSetup(**settings.browser)
-    if args.show_browser:
+    if show_browser:
         setup = replace(setup, headless=False)
-    return BrowserFetcher(profile_dir=Path(args.db).resolve().parent / "browser-profile", setup=setup,
-                          delay=(args.delay, args.delay * 2.5), save_dir=save_dir, postcode=settings.postcode)
+    return BrowserFetcher(profile_dir=Path(db_path).resolve().parent / "browser-profile", setup=setup,
+                          delay=(delay, delay * 2.5), save_dir=save_dir, postcode=settings.postcode)
+
+
+def _lan_address() -> str:
+    """This computer's address on the home network (what the phones connect to)."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        try:
+            s.connect(("192.168.0.1", 9))  # no traffic is sent; this just picks the outgoing interface
+            return s.getsockname()[0]
+        except OSError:
+            return "localhost"
+
+
+def cmd_serve(db: Database, args) -> None:
+    import secrets
+    from .web.server import serve
+
+    key = ""
+    if not args.open:
+        key = db.get_setting("web_key") or secrets.token_urlsafe(12)
+        db.set_setting("web_key", key)
+    suffix = f"/?key={key}" if key else "/"
+    print("Shopping list running. On your phones, open:")
+    print(f"  http://{_lan_address()}:{args.port}{suffix}   (on your home Wi-Fi)")
+    print(f"  then Share → Add to Home Screen. On this computer: http://localhost:{args.port}{suffix}")
+    print("Leave this window open (Ctrl+C stops it).")
+    db_path = str(Path(args.db).resolve())
+    serve(db_path, args.host, args.port, key,
+          lambda job_db: _make_fetcher(db_path, job_db, delay=args.delay))
 
 
 def _doctor(db: Database, args) -> None:
@@ -483,6 +518,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--cards", default="tesco,sainsburys,coop",
                    help="loyalty cards you have (default tesco,sainsburys,coop)")
     s.set_defaults(func=cmd_stores)
+
+    s = sub.add_parser("serve", help="the shared list as a web app for your phones")
+    s.add_argument("--host", default="0.0.0.0", help="address to listen on (default: all, so phones can connect)")
+    s.add_argument("--port", type=int, default=8765)
+    s.add_argument("--open", action="store_true", help="no private key in the link (only on a network you trust)")
+    s.add_argument("--delay", type=float, default=2.0, help="minimum seconds between supermarket pages")
+    s.set_defaults(func=cmd_serve)
 
     s = sub.add_parser("suggest", help="related things to try")
     s.add_argument("item")

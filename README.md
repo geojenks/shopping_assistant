@@ -40,6 +40,32 @@ Without installing: `python -m shopping_assistant ...`. The database is
 **The sample prices are made up** to exercise the planner. They are roughly the
 right shape but not real.
 
+## On your phones
+
+```sh
+shop serve
+```
+
+It prints a link like `http://192.168.1.20:8765/?key=…`. Open it once on each
+phone (it then remembers you), then **Share → Add to Home Screen** (iPhone) or
+**⋮ → Add to Home screen** (Android) and it opens like an app. Both of you can:
+
+- add things as you run low or run out, with suggestions from the catalogue
+  (anything new becomes a new item)
+- change quantities, tick things off as bought (with undo), and see who added what
+- see what you usually buy around now
+- press **Find the best shop**: the computer checks today's prices for what's on
+  the list (about 10 seconds per search) and shows the options side by side
+
+The computer running `shop serve` does the price checks (supermarkets only answer
+a home connection), so it needs to be on and awake while you use the list.
+
+**Away from home Wi-Fi:** install [Tailscale](https://tailscale.com) (free for
+personal use) on the computer and both phones, sign in with the same account, then
+on the computer run `tailscale serve --bg 8765`. It gives a private
+`https://….ts.net` address that only your devices can open, from anywhere. Use
+that address (plus `/?key=…`) on the phones instead.
+
 ## Your shops
 
 ```sh
@@ -171,12 +197,9 @@ more than that.
 
 ## Roadmap
 
-1. **Real prices: first run.** Probe each site from home and adjust
-   `shopping_assistant/prices/sites.py` (search URLs, product link patterns,
-   own-label names) where they've drifted.
-2. **Shared list on phones.** A small web app (PWA) over the same database so
-   both of you can add "running low" / "run out" from the kitchen.
-3. **Better suggestions.** Rate products after trying them; feed ratings into
+1. **Co-op prices.** The postcode step is in place; its results page still needs
+   checking from a home connection.
+2. **Better suggestions.** Rate products after trying them; feed ratings into
    preferences automatically ("you rated Aldi kale 1/5: block it?").
-4. **Checkout handoff.** Export each shop's part of the plan as a list, or fill
+3. **Checkout handoff.** Export each shop's part of the plan as a list, or fill
    the online basket for the delivery part.

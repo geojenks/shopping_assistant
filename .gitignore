@@ -5,6 +5,7 @@ __pycache__/
 *.html
 !docs/*.html
 !tests/fixtures/*.html
+!shopping_assistant/web/static/*.html
 # Your own exports and data stay local
 data/private/
 browser-profile/

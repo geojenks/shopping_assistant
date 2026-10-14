@@ -18,3 +18,6 @@ shop = "shopping_assistant.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["shopping_assistant*"]
+
+[tool.setuptools.package-data]
+"shopping_assistant.web" = ["static/*"]

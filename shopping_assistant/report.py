@@ -144,3 +144,25 @@ document.getElementById('all').addEventListener('change', e =>
 </script>
 </body></html>
 """
+
+
+def comparison(shortlisted: list[tuple[str, Plan]]) -> dict:
+    """The shortlist as plain data, for the web app."""
+    plans = [p for _, p in shortlisted]
+    options = [{
+        "letter": letter, "title": title, "cash": plan.cash, "label": plan.label, "summary": _summary(plan),
+        "miles": plan.miles, "route": [s.name for s in plan.route],
+        "deliveries": [c.label for c in plan.channels if c.mode == "delivery"],
+    } for letter, (title, plan) in zip(ascii_uppercase, shortlisted)]
+    differing = {item_id for item_id, _ in _differing_rows(plans, show_all=False)} if plans else set()
+    rows = []
+    for item_id, name in (_differing_rows(plans, show_all=True) if plans else []):
+        cells = []
+        for plan in plans:
+            line = plan.line_for(item_id)
+            cells.append(None if line is None else {
+                "store": line.channel.store.name, "product": line.choice.product.name, "packs": line.choice.packs,
+                "cost": line.choice.cost, "url": line.choice.product.url,
+            })
+        rows.append({"item_id": item_id, "name": name, "differs": item_id in differing, "cells": cells})
+    return {"options": options, "rows": rows, "unavailable": plans[0].unavailable if plans else []}
