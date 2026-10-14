@@ -43,3 +43,31 @@ def match_item(name: str, items: Iterable[Item], cutoff: float = 0.8) -> str | N
         return best[1]
     close = difflib.get_close_matches(text, list(names), n=1, cutoff=cutoff)
     return names[close[0]] if close else None
+
+
+def has_phrase(name: str, phrase: str) -> bool:
+    """`phrase`'s words appear together and in order in `name` ("almond butter", not "butter almond")."""
+    words, want = normalise(name).split(), normalise(phrase).split()
+    return bool(want) and any(words[i:i + len(want)] == want for i in range(len(words) - len(want) + 1))
+
+
+def keyword_matches(keyword: str, name: str) -> bool:
+    """A keyword matches if all its words are in the name; in "quotes", only as that exact phrase."""
+    if len(keyword) > 2 and keyword[0] == keyword[-1] == '"':
+        return has_phrase(name, keyword[1:-1])
+    want = set(normalise(keyword).split())
+    return bool(want) and want <= set(normalise(name).split())
+
+
+FILLER = {"with", "of", "in", "for", "from", "all", "x", "a", "pack", "each", "new", "our", "classic"}
+
+
+def telling_words(name: str, query: str) -> list[str]:
+    """Words that set a product apart from what was asked for: "croissants" in
+    "All Butter Almond Croissants" when you wanted "almond butter"."""
+    asked = set(normalise(query).split())
+    seen: list[str] = []
+    for word in normalise(name).split():
+        if word not in asked and word not in FILLER and len(word) > 2 and not word.isdigit() and word not in seen:
+            seen.append(word)
+    return seen[::-1]  # the product type is usually last ("... croissants"), so offer it first

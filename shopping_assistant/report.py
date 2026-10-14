@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 from string import ascii_uppercase
 
+from .matching import telling_words
 from .optimizer import Plan
 
 
@@ -164,6 +165,7 @@ def comparison(shortlisted: list[tuple[str, Plan]]) -> dict:
                 "store": line.channel.store.name, "product": line.choice.product.name, "packs": line.choice.packs,
                 "cost": line.choice.cost, "url": line.choice.product.url, "key": line.choice.product.key,
                 "chain": line.choice.product.chain, "own_label": line.choice.product.tier.is_own_label,
+                "telling": telling_words(line.choice.product.name, " ".join((line.item.name, *line.item.keywords)))[:4],
             })
         rows.append({"item_id": item_id, "name": name, "differs": item_id in differing, "cells": cells})
     return {"options": options, "rows": rows, "unavailable": plans[0].unavailable if plans else []}

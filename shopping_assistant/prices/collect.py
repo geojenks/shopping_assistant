@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Protocol
 
-from ..matching import normalise
+from ..matching import keyword_matches, normalise
 from ..models import Item, Product, Tier
 from ..units import size_in, to_base
 from .sites import Site
@@ -43,11 +43,10 @@ def tier_and_brand(site: Site, name: str) -> tuple[Tier, str]:
 
 
 def is_item(item: Item, name: str) -> bool:
-    words = set(normalise(name).split())
     phrases = item.keywords or (item.name,)
-    if not any(set(normalise(p).split()) <= words for p in phrases if normalise(p)):
+    if not any(keyword_matches(p, name) for p in phrases):
         return False
-    if any(set(normalise(x).split()) <= words for x in item.exclude if normalise(x)):
+    if any(keyword_matches(x, name) for x in item.exclude):
         return False
     if item.size:
         have = size_in(name, item.unit)

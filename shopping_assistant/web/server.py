@@ -115,17 +115,45 @@ class FindJob:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.lock = threading.Lock()
-        self.state: dict = {"state": "idle"}
-        self.listings: dict[str, list] = {}  # chain -> Listing, for adding one afterwards
+        self.status: dict = {"state": "idle"}
+        self.query = ""
+        self.listings: dict[str, list] = {}  # chain -> Listing (all with every word asked for)
+        self.errors: dict[str, str] = {}
+        self.chains: list[str] = []  # in the order they were searched
+        self.excludes: list[str] = []  # "not this kind": words that mean it isn't what you want
+
+    @property
+    def state(self) -> dict:
+        """What the app shows: likely matches first, products with the words scattered after."""
+        from ..matching import has_phrase, keyword_matches, telling_words
+
+        results = []
+        for chain in self.chains:
+            close, other = [], []
+            for l in self.listings.get(chain, []):
+                if any(keyword_matches(x, l.name) for x in self.excludes):
+                    continue
+                entry = {"id": l.id, "name": l.name, "price": l.price, "loyalty_price": l.loyalty_price,
+                         "multibuy": f"{l.multibuy_qty} for £{l.multibuy_price:.2f}" if l.multibuy_qty else "",
+                         "url": l.url, "telling": telling_words(l.name, self.query)[:4]}
+                (close if has_phrase(l.name, self.query) else other).append(entry)
+            results.append({"chain": chain, "error": self.errors.get(chain, ""), "products": close[:10],
+                            "others": other[:10]})
+        return {**self.status, "query": self.query, "excludes": self.excludes, "results": results}
 
     def start(self, query: str, fetcher_factory) -> bool:
         with self.lock:
-            if self.state.get("state") == "running":
+            if self.status.get("state") == "running":
                 return False
-            self.state = {"state": "running", "query": query, "progress": "Starting…", "results": []}
-            self.listings = {}
+            self.status = {"state": "running", "progress": "Starting…"}
+            self.query, self.listings, self.errors, self.chains, self.excludes = query, {}, {}, [], []
         threading.Thread(target=self._run, args=(query, fetcher_factory), daemon=True).start()
         return True
+
+    def exclude(self, word: str) -> None:
+        with self.lock:
+            if word and word not in self.excludes:
+                self.excludes.append(word)
 
     def _run(self, query: str, fetcher_factory) -> None:
         db = Database(self.db_path)
@@ -133,30 +161,28 @@ class FindJob:
             sites = _shop_sites(db)
             wanted = set(normalise(query).split())
             with self.lock:
-                self.state["progress"] = "Waiting for the browser…"
+                self.status["progress"] = "Waiting for the browser…"
             with BROWSER, fetcher_factory(db) as fetcher:
                 for n, site in enumerate(sites, 1):
                     with self.lock:
-                        self.state["progress"] = f"Searching {site.chain} ({n} of {len(sites)})…"
+                        self.status["progress"] = f"Searching {site.chain} ({n} of {len(sites)})…"
                     try:
                         # Shops pad thin results with anything vaguely related: keep names with every word asked for.
                         found = [l for l in fetcher.search(site, query)
-                                 if l.available and wanted <= set(normalise(l.name).split())][:12]
+                                 if l.available and wanted <= set(normalise(l.name).split())][:20]
                         error = ""
                     except Exception as e:
                         found, error = [], str(e).splitlines()[0][:120]
                     with self.lock:
                         self.listings[site.chain] = found
-                        self.state["results"].append({"chain": site.chain, "error": error, "products": [
-                            {"id": l.id, "name": l.name, "price": l.price, "loyalty_price": l.loyalty_price,
-                             "multibuy": f"{l.multibuy_qty} for £{l.multibuy_price:.2f}" if l.multibuy_qty else "",
-                             "url": l.url} for l in found]})
+                        self.errors[site.chain] = error
+                        self.chains.append(site.chain)
             with self.lock:
-                self.state.update(state="done", progress="")
+                self.status = {"state": "done", "progress": ""}
         except Exception as e:
             traceback.print_exc()
             with self.lock:
-                self.state.update(state="error", error=str(e).splitlines()[0][:300])
+                self.status = {"state": "error", "error": str(e).splitlines()[0][:300]}
         finally:
             db.close()
 
@@ -168,7 +194,7 @@ class FindJob:
         from ..units import parse_sizes
 
         with self.lock:
-            query = self.state.get("query", "")
+            query, excludes = self.query, tuple(self.excludes)
             listings = {c: list(ls) for c, ls in self.listings.items()}
         if not query:
             raise ValueError("search first")
@@ -180,10 +206,11 @@ class FindJob:
             size, unit = sizes[0] if sizes else (None, "each")
             words = " ".join(w for w in chosen.name.split() if not parse_sizes(w))
             item = Item(db.new_item_id(chosen.name), chosen.name, aisle or "Other", (), size, unit,
-                        (words,), query, (), "Added by you")
+                        (words,), query, excludes, "Added by you")
         else:
+            # The words together, as typed: "almond butter" the spread, not "all butter almond croissants".
             item = Item(db.new_item_id(query), query[:1].upper() + query[1:], aisle or "Other", (), None, "each",
-                        (query,), query, (), "Added by you")
+                        (f'"{query}"',), query, excludes, "Added by you")
         db.upsert_item(item)
         for c, found in listings.items():
             if c in SITES:
@@ -268,6 +295,10 @@ def make_handler(db_path: str, key: str, job: PlanJob, fetcher_factory, finder: 
                 if not query:
                     return self._json({"error": "what are you looking for?"}, 400)
                 return self._json({"started": finder.start(query, fetcher_factory)})
+            if path == "/api/find/exclude":
+                finder.exclude(str(body.get("word", "")).strip().lower())
+                with finder.lock:
+                    return self._json(finder.state)
             db = Database(db_path)
             try:
                 if path == "/api/add":
@@ -286,6 +317,8 @@ def make_handler(db_path: str, key: str, job: PlanJob, fetcher_factory, finder: 
                 elif path == "/api/find/add":
                     finder.add(db, body.get("mode", "generic"), str(body.get("aisle") or ""),
                                str(body.get("chain") or ""), str(body.get("id") or ""), str(body.get("who") or ""))
+                elif path == "/api/item/exclude":
+                    db.exclude_from_item(body["item_id"], str(body["word"]).strip().lower())
                 elif path == "/api/pref":
                     action, item_id = body["action"], body["item_id"]
                     if action == "never-product":

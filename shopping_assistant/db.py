@@ -337,6 +337,21 @@ class Database:
             self.upsert_item(item)
         return item
 
+    def exclude_from_item(self, item_id: str, word: str) -> int:
+        """"Not this kind": products containing `word` aren't this item. Returns how many were dropped."""
+        from dataclasses import replace
+        from .prices.collect import is_item
+
+        item = self.items()[item_id]
+        if word and word not in item.exclude:
+            item = replace(item, exclude=(*item.exclude, word))
+            self.upsert_item(item)
+        wrong = [p for p in self.products(item_id) if not is_item(item, p.name)]
+        for p in wrong:
+            self.conn.execute("DELETE FROM products WHERE chain = ? AND id = ? AND item_id = ?", (p.chain, p.id, item_id))
+        self.conn.commit()
+        return len(wrong)
+
     def new_item_id(self, name: str) -> str:
         base = re.sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")[:60] or "item"
         existing = self.items()

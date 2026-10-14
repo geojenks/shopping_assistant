@@ -64,7 +64,11 @@ phone (it then remembers you), then **Share → Add to Home Screen** (iPhone) or
   each showing the cheapest price found so far
 - not in the catalogue? **Looking for something specific?** searches every shop
   live (about 10 seconds a shop) and lets you add one exact product or the thing
-  in general ("tahini, any brand") to the aisle you choose, prices included
+  in general ("tahini, any brand") to the aisle you choose, prices included.
+  Products with your words as a phrase come first ("almond butter"); ones with the
+  words apart ("all butter almond croissants") are folded away. **Not this kind**
+  hides everything with a word you pick ("croissants"), and that rule stays with
+  the item, as it does when you choose "wrong kind of thing" in a comparison
 - add things as you run low or run out, with suggestions from the catalogue
   (anything new becomes a new item)
 - change quantities, tick things off as bought (with undo), and see who added what
@@ -108,6 +112,8 @@ worth (`per_mile_time`, `per_stop`), which only affects the ranking.
 - **Items vs products.** An *item* is the generic thing ("salted butter, 250g").
   A *product* is what a chain sells ("Lurpak Slightly Salted 250g" at Tesco).
   The list is made of items; the planner picks products.
+- **Keywords** in `items.json` match when all their words are in a product's name;
+  put one in "quotes" to need the exact phrase. `exclude` words rule products out.
 - **Preferences** decide which products are acceptable for an item:
   - `pref brand ITEM BRAND`: you want that brand. Own label is then excluded…
   - `pref sub-ok ITEM CHAIN`: …except where you say a chain's own label is fine

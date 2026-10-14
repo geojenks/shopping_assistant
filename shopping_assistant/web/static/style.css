@@ -134,3 +134,8 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 .find-head select { font: inherit; margin-left: 4px; padding: 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
 .find a { color: var(--accent); }
 .ok { color: var(--accent); font-weight: 600; }
+
+.link { color: var(--muted); text-decoration: underline; padding: 4px 0 0; display: block; }
+.others { margin: 8px 0 0; }
+.others summary { color: var(--muted); font-size: 14px; cursor: pointer; padding: 6px 0; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--line); color: var(--fg); }

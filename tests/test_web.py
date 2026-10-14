@@ -155,3 +155,47 @@ def test_find_something_not_in_the_catalogue(tmp_path):
     assert (one.name, one.size, one.unit) == ("Tesco Tahini 300g", 300, "g")
     assert [p.name for p in db.products(one.id) if p.chain == "tesco"] == ["Tesco Tahini 300g"]
     assert {e.item_id for e in db.shopping_list()} == {item.id, one.id}
+
+
+def test_find_ranks_phrases_and_learns_what_you_dont_mean(tmp_path):
+    from contextlib import contextmanager
+    from shopping_assistant.db import Database
+    from shopping_assistant.prices.tiles import Listing
+    from shopping_assistant.web.server import FindJob
+
+    db_path = str(tmp_path / "find2.db")
+    main(["--db", db_path, "init"])
+
+    class Shops:
+        def search(self, site, query):
+            return [Listing(site.chain, "1", "Pip & Nut Smooth Almond Butter 225g", price=4.0),
+                    Listing(site.chain, "2", "Almond Butter Smoothie Bowls 2 x 200g", price=3.0),
+                    Listing(site.chain, "3", "All Butter Almond Croissants x4", price=2.0)]
+
+    @contextmanager
+    def fetcher(db):
+        yield Shops()
+
+    finder = FindJob(db_path)
+    finder.start("almond butter", fetcher)
+    for _ in range(100):
+        if finder.state["state"] != "running":
+            break
+        time.sleep(0.05)
+    tesco = next(r for r in finder.state["results"] if r["chain"] == "tesco")
+    assert [p["id"] for p in tesco["products"]] == ["1", "2"]
+    assert [p["id"] for p in tesco["others"]] == ["3"] and tesco["others"][0]["telling"][0] == "croissants"
+    finder.exclude("bowls")
+    tesco = next(r for r in finder.state["results"] if r["chain"] == "tesco")
+    assert [p["id"] for p in tesco["products"]] == ["1"]
+
+    db = Database(db_path)
+    item = finder.add(db, "generic", "Food cupboard")
+    assert item.keywords == ('"almond butter"',) and item.exclude == ("bowls",)
+    assert [p.id for p in db.products(item.id) if p.chain == "tesco"] == ["1"]  # no croissants, no bowls
+
+    # Later, from the comparison: "wrong kind of thing" drops matches and remembers the word.
+    db.upsert_products([__import__("dataclasses").replace(db.products(item.id)[0], id="9",
+                                                          name="Almond Butter Protein Bar 45g")])
+    assert db.exclude_from_item(item.id, "bar") == 1
+    assert "bar" in db.items()[item.id].exclude

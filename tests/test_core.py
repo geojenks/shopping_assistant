@@ -186,3 +186,13 @@ def test_tesco_export_reader_finds_nested_transactions(tmp_path):
         ("Tesco Semi Skimmed Milk 4 Pints", 2, 3.30, "2026-09-01", "T1"),
         ("Tesco Kale 200g", 1, 1.00, "2026-09-01", "T1"),
     ]
+
+
+def test_phrases_and_telling_words():
+    from shopping_assistant.matching import has_phrase, keyword_matches, telling_words
+    assert has_phrase("Meridian Smooth Almond Butter 170g", "almond butter")
+    assert not has_phrase("Sainsbury's All Butter Almond Croissants x4", "almond butter")
+    assert keyword_matches('"almond butter"', "Pip & Nut Almond Butter 225g")
+    assert not keyword_matches('"almond butter"', "All Butter Almond Croissants")
+    assert keyword_matches("almond butter", "All Butter Almond Croissants")  # unquoted: words anywhere
+    assert telling_words("Sainsbury's All Butter Almond Croissants x4", "almond butter") == ["croissants"]

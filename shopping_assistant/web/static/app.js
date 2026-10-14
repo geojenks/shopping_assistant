@@ -84,7 +84,15 @@ document.addEventListener("click", e => {
   const t = e.target.closest("button");
   if (!t) return;
   const item = t.dataset;
-  if (item.findGeneric) addFound({mode: "generic"});
+  if (item.notKind && lastFind) {
+    const [chain, id] = item.notKind.split("|");
+    const r = lastFind.results.find(x => x.chain === chain);
+    const p = r && [...r.products, ...r.others].find(x => x.id === id);
+    if (p) notThisKind(p.name, p.telling).then(async word => {
+      if (word) renderFind(await api("/api/find/exclude", {word}));
+    });
+  }
+  else if (item.findGeneric) addFound({mode: "generic"});
   else if (item.findChain) addFound({mode: "product", chain: item.findChain, id: item.findId});
   else if (item.aisle) { aisle = item.aisle; renderShop(); window.scrollTo(0, 0); }
   else if (item.addId) act("/api/add", {item_id: item.addId, text: item.addId, status: "want", who});
@@ -169,6 +177,7 @@ function renderShop() {
 // --- "looking for something specific?": search the shops live ---------------------
 
 let finding = null;
+let lastFind = null;
 
 $("#find-form").addEventListener("submit", async e => {
   e.preventDefault();
@@ -196,17 +205,25 @@ function renderFind(job) {
       <button class="add-one" data-find-generic="1">Add “${esc(job.query)}”, any brand</button> ${pick}</div>`;
   const status = job.state === "running" ? `<p class="muted">${esc(job.progress || "Searching…")}</p>`
     : job.state === "error" ? `<p class="error">${esc(job.error)}</p>` : "";
+  const row = (chain, p) => `
+    <li class="row shop-row"><div class="name"><strong>${esc(p.name)}</strong>
+      <span class="meta">${money(p.price)}${p.loyalty_price ? ` · card ${money(p.loyalty_price)}` : ""}${p.multibuy ? " · " + esc(p.multibuy) : ""}
+      ${p.url ? ` · <a href="${esc(p.url)}" target="_blank" rel="noopener">see it</a>` : ""}</span>
+      ${p.telling.length ? `<button class="link small" data-not-kind="${esc(chain)}|${esc(p.id)}">Not this kind</button>` : ""}</div>
+      <button class="ghost" data-find-chain="${esc(chain)}" data-find-id="${esc(p.id)}">Add this one</button></li>`;
+  const hiding = (job.excludes || []).length
+    ? `<p class="muted small">Hiding anything with: ${job.excludes.map(w => `<span class="tag">${esc(w)}</span>`).join(" ")}</p>` : "";
   const shops = (job.results || []).map(r => `
     <h2>${esc(CHAIN[r.chain] || r.chain)}</h2>
     ${r.error ? `<p class="error small">Couldn't search: ${esc(r.error)}</p>`
-      : !r.products.length ? `<p class="muted small">Nothing found.</p>`
-      : `<ul class="list">${r.products.map(p => `
-        <li class="row shop-row"><div class="name"><strong>${esc(p.name)}</strong>
-          <span class="meta">${money(p.price)}${p.loyalty_price ? ` · card ${money(p.loyalty_price)}` : ""}${p.multibuy ? " · " + esc(p.multibuy) : ""}
-          ${p.url ? ` · <a href="${esc(p.url)}" target="_blank" rel="noopener">see it</a>` : ""}</span></div>
-          <button class="ghost" data-find-chain="${esc(r.chain)}" data-find-id="${esc(p.id)}">Add this one</button></li>`).join("")}</ul>`}`).join("");
+      : !r.products.length && !r.others.length ? `<p class="muted small">Nothing found.</p>`
+      : `${r.products.length ? `<ul class="list">${r.products.map(p => row(r.chain, p)).join("")}</ul>`
+                             : `<p class="muted small">Nothing with “${esc(job.query)}” as a phrase.</p>`}
+         ${r.others.length ? `<details class="others"><summary>${r.others.length} more with those words apart (probably not it)</summary>
+           <ul class="list">${r.others.map(p => row(r.chain, p)).join("")}</ul></details>` : ""}`}`).join("");
+  lastFind = job;
   const keep = $("#find-aisle") && $("#find-aisle").value;
-  $("#find-results").innerHTML = head + status + shops;
+  $("#find-results").innerHTML = head + hiding + status + shops;
   if (keep) $("#find-aisle").value = keep;
   else if (aisle) $("#find-aisle").value = aisle;
 }
@@ -284,6 +301,27 @@ function renderPlan(result) {
   draw();
 }
 
+// A bottom sheet of choices; resolves with the chosen value, or "" if cancelled.
+function choose(titleHtml, options) {
+  return new Promise(resolve => {
+    $("#sheet .sheet-title").innerHTML = titleHtml;
+    $("#sheet .sheet-actions").innerHTML = options.map(([value, label]) =>
+      `<button value="${esc(value)}" class="sheet-action">${esc(label)}</button>`).join("");
+    $("#sheet").returnValue = "";
+    $("#sheet").onclose = () => {
+      const v = $("#sheet").returnValue;
+      resolve(v && v !== "cancel" ? v : "");
+    };
+    $("#sheet").showModal();
+  });
+}
+
+function notThisKind(productName, words) {
+  return choose(`<strong>Not what you meant?</strong><br><span class="muted">${esc(productName)}</span><br>
+      <span class="muted small">Hide everything with the word:</span>`,
+    words.map(w => [w, `“${w}”`]));
+}
+
 // Tap a product in the comparison to say what you think of it.
 
 $("#rows").addEventListener("click", e => {
@@ -297,21 +335,24 @@ $("#rows").addEventListener("click", e => {
     ["not-from-chain", `Don't buy ${row.name.toLowerCase()} at ${shop}`],
   ];
   if (c.own_label) actions.push(["no-own-label", `${shop}'s own brand isn't good enough for this`]);
+  if ((c.telling || []).length) actions.unshift(["wrong-kind", `Wrong kind of thing (not ${row.name.toLowerCase()})`]);
   actions.push(["reset", `Forget my rules for ${row.name.toLowerCase()}`]);
-  $("#sheet .sheet-title").innerHTML = `<strong>${esc(c.product)}</strong><br><span class="muted">${esc(c.store)} · ${money(c.cost)}</span>`
+  const title = `<strong>${esc(c.product)}</strong><br><span class="muted">${esc(c.store)} · ${money(c.cost)}</span>`
     + (c.url ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">see it</a>` : "");
-  $("#sheet .sheet-actions").innerHTML = actions.map(([a, label]) =>
-    `<button value="${a}" class="sheet-action">${esc(label)}</button>`).join("");
-  $("#sheet").returnValue = "";
-  $("#sheet").onclose = async () => {
-    const action = $("#sheet").returnValue;
-    if (!action || action === "cancel") return;
+  (async () => {
+    const action = await choose(title, actions);
+    if (!action) return;
     try {
-      await api("/api/pref", {action, item_id: row.item_id, key: c.key, chain: c.chain});
+      if (action === "wrong-kind") {
+        const word = await notThisKind(c.product, c.telling);
+        if (!word) return;
+        await api("/api/item/exclude", {item_id: row.item_id, word});
+      } else {
+        await api("/api/pref", {action, item_id: row.item_id, key: c.key, chain: c.chain});
+      }
       compare(false);  // same prices, new rules
     } catch (err) { alert(err.message); }
-  };
-  $("#sheet").showModal();
+  })();
 });
 
 $("#compare").addEventListener("click", () => compare(true));
