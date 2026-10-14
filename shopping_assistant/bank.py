@@ -96,34 +96,45 @@ CRAWLERS = {"aldi": crawl_aldi}
 
 # --- telling what kind of thing a product is -----------------------------------
 
-class ShelfGuesser:
-    """Guesses a product's shelf from its name, using the words of products already on shelves.
+def _features(name: str) -> set[str]:
+    """Words (singular) and neighbouring pairs ("peanut butter"), without filler."""
+    from .matching import FILLER
 
-    Each word votes for the shelves it appears on, rare words loudest ("croissants" says
-    Breakfast Pastries far more clearly than "butter" says anything).
+    words = [w[:-1] if len(w) > 4 and w.endswith("s") and not w.endswith("ss") else w
+             for w in normalise(name).split() if w not in FILLER and not w.isdigit() and len(w) > 1]
+    return set(words) | {f"{a} {b}" for a, b in zip(words, words[1:])}
+
+
+class ShelfGuesser:
+    """Guesses a product's shelf from its name, using the names of products already on shelves.
+
+    Each word, and each pair of neighbouring words, votes for the shelves it appears on;
+    rare ones loudest ("croissants" says Breakfast Pastries far more clearly than "butter"
+    says anything, and "peanut butter" says Spreads more clearly than either word alone).
     """
 
     def __init__(self, products: Iterable[BankProduct]):
-        self.shelves: dict[str, Counter] = defaultdict(Counter)  # word -> (aisle, shelf) counts
+        self.shelves: dict[str, Counter] = defaultdict(Counter)  # feature -> shelf counts
         self.aisle_of: dict[str, str] = {}
         documents = 0
         for p in products:
             documents += 1
             self.aisle_of[p.shelf] = p.aisle
-            for word in set(normalise(p.name).split()):
-                self.shelves[word][p.shelf] += 1
-        self.idf = {w: math.log((1 + documents) / (1 + sum(c.values()))) + 1 for w, c in self.shelves.items()}
+            for feature in _features(p.name):
+                self.shelves[feature][p.shelf] += 1
+        self.idf = {f: math.log((1 + documents) / (1 + sum(c.values()))) + 1 for f, c in self.shelves.items()}
 
     def guess(self, name: str) -> tuple[str, str] | None:
         """(our aisle, shop's shelf) for a product name, or None if its words are unknown."""
         scores: Counter = Counter()
-        for word in set(normalise(name).split()):
-            counts = self.shelves.get(word)
+        for feature in _features(name):
+            counts = self.shelves.get(feature)
             if not counts:
                 continue
             total = sum(counts.values())
+            weight = self.idf[feature] * (2 if " " in feature else 1)
             for shelf, n in counts.items():
-                scores[shelf] += self.idf[word] * n / total
+                scores[shelf] += weight * n / total
         if not scores:
             return None
         shelf = scores.most_common(1)[0][0]

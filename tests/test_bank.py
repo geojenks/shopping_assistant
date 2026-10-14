@@ -59,6 +59,7 @@ BANK = [
     BankProduct("aldi", "3", "Grandessa Strawberry Jam 454 g", 0.89, "Food cupboard", "Jams, Spreads & Syrups"),
     BankProduct("aldi", "4", "Village Bakery All Butter Croissants 4 Each", 1.29, "Bakery", "Breakfast Pastries"),
     BankProduct("aldi", "5", "Village Bakery Pain Au Chocolat 4 Each", 1.29, "Bakery", "Breakfast Pastries"),
+    BankProduct("aldi", "7", "Village Bakery Almond Croissants 2 Each", 1.49, "Bakery", "Breakfast Pastries"),
     BankProduct("aldi", "6", "Cowbelle Salted Butter 250 g", 1.85, "Dairy, eggs & chilled", "Dairy"),
 ]
 
@@ -92,7 +93,7 @@ def test_bank_in_the_app(tmp_path):
         cupboard = next(a for a in call("/api/catalogue")["aisles"] if a["name"] == "Food cupboard")
         assert {"chain": "aldi", "shelf": "Jams, Spreads & Syrups", "count": 3} in cupboard["bank"]
         shelf = call("/api/bank/shelf?chain=aldi&shelf=Breakfast%20Pastries")["products"]
-        assert [p["id"] for p in shelf] == ["4", "5"]
+        assert [p["id"] for p in shelf] == ["4", "5", "7"]
         state = call("/api/bank/add", {"chain": "aldi", "id": "2"})
         [entry] = state["list"]
         item = db.items()[entry["item_id"]]
