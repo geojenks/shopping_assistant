@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .. import history, report
 from ..db import Database
+from ..matching import normalise
 from ..optimizer import plan_options, shortlist
 
 STATIC = Path(__file__).parent / "static"
@@ -130,6 +131,7 @@ class FindJob:
         db = Database(self.db_path)
         try:
             sites = _shop_sites(db)
+            wanted = set(normalise(query).split())
             with self.lock:
                 self.state["progress"] = "Waiting for the browser…"
             with BROWSER, fetcher_factory(db) as fetcher:
@@ -137,7 +139,9 @@ class FindJob:
                     with self.lock:
                         self.state["progress"] = f"Searching {site.chain} ({n} of {len(sites)})…"
                     try:
-                        found = [l for l in fetcher.search(site, query) if l.available][:12]
+                        # Shops pad thin results with anything vaguely related: keep names with every word asked for.
+                        found = [l for l in fetcher.search(site, query)
+                                 if l.available and wanted <= set(normalise(l.name).split())][:12]
                         error = ""
                     except Exception as e:
                         found, error = [], str(e).splitlines()[0][:120]

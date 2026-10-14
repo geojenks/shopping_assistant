@@ -130,7 +130,8 @@ def test_find_something_not_in_the_catalogue(tmp_path):
             if site.chain == "aldi":
                 raise TimeoutError("slow")
             return [Listing(site.chain, "1", f"{site.chain.title()} Tahini 300g", price=3.0),
-                    Listing(site.chain, "2", "Tahini & Lime Dressing 250ml", price=4.0)]
+                    Listing(site.chain, "2", "Tahini & Lime Dressing 250ml", price=4.0),
+                    Listing(site.chain, "3", "Wafer Thin Ham 120g", price=2.0)]  # padding
 
     @contextmanager
     def fetcher(db):
@@ -144,6 +145,7 @@ def test_find_something_not_in_the_catalogue(tmp_path):
         time.sleep(0.05)
     results = {r["chain"]: r for r in finder.state["results"]}
     assert results["aldi"]["error"] and results["tesco"]["products"][0]["name"] == "Tesco Tahini 300g"
+    assert all("Ham" not in p["name"] for p in results["tesco"]["products"])
 
     db = Database(db_path)
     item = finder.add(db, "generic", "Food cupboard", who="Sam")
