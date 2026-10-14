@@ -174,6 +174,18 @@ def make_handler(db_path: str, key: str, job: PlanJob, fetcher_factory):
                     db.remove_from_list(body["item_id"])
                 elif path == "/api/undo":
                     db.undo_bought(int(body["purchase_id"]))
+                elif path == "/api/pref":
+                    action, item_id = body["action"], body["item_id"]
+                    if action == "never-product":
+                        db.blacklist(body["key"])
+                    elif action == "not-from-chain":
+                        db.block(item_id, body["chain"])
+                    elif action == "no-own-label":
+                        db.set_own_label(item_id, body["chain"], False)
+                    elif action == "reset":
+                        db.clear_preferences(item_id)
+                    else:
+                        raise ValueError(action)
                 else:
                     return self._json({"error": "unknown"}, 404)
                 return self._json(self._state(db))

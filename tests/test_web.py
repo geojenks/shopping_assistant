@@ -72,3 +72,20 @@ def test_compare_with_saved_prices(app):
     result = job["result"]
     assert result["options"][0]["title"] == "Best overall"
     assert {r["item_id"] for r in result["rows"]} == {"kale", "milk-semi"}
+
+
+def test_preferences_from_the_phone(app, tmp_path):
+    from shopping_assistant.db import Database
+    app("/?key=secret")
+    app("/api/add", {"text": "kale"})
+    app("/api/pref", {"action": "not-from-chain", "item_id": "kale", "chain": "aldi"})
+    app("/api/pref", {"action": "no-own-label", "item_id": "kale", "chain": "tesco"})
+    app("/api/pref", {"action": "never-product", "item_id": "kale", "key": "lidl:li011"})
+    db = Database(tmp_path / "shop.db")
+    prefs = db.preferences()
+    assert ("kale", "aldi") in prefs.blocked
+    assert prefs.own_label_ok[("kale", "tesco")] is False
+    assert "lidl:li011" in prefs.blacklisted_products
+    app("/api/pref", {"action": "reset", "item_id": "kale"})
+    prefs = db.preferences()
+    assert not prefs.blocked and not prefs.own_label_ok

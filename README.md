@@ -56,6 +56,8 @@ phone (it then remembers you), then **Share → Add to Home Screen** (iPhone) or
 - see what you usually buy around now
 - press **Find the best shop**: the computer checks today's prices for what's on
   the list (about 10 seconds per search) and shows the options side by side
+- tap any product in the comparison to say "never this one", "not from this
+  shop", or "this shop's own brand isn't good enough"; it re-compares at once
 
 The computer running `shop serve` does the price checks (supermarkets only answer
 a home connection), so it needs to be on and awake while you use the list.

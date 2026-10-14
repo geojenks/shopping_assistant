@@ -162,7 +162,8 @@ def comparison(shortlisted: list[tuple[str, Plan]]) -> dict:
             line = plan.line_for(item_id)
             cells.append(None if line is None else {
                 "store": line.channel.store.name, "product": line.choice.product.name, "packs": line.choice.packs,
-                "cost": line.choice.cost, "url": line.choice.product.url,
+                "cost": line.choice.cost, "url": line.choice.product.url, "key": line.choice.product.key,
+                "chain": line.choice.product.chain, "own_label": line.choice.product.tier.is_own_label,
             })
         rows.append({"item_id": item_id, "name": name, "differs": item_id in differing, "cells": cells})
     return {"options": options, "rows": rows, "unavailable": plans[0].unavailable if plans else []}

@@ -92,9 +92,20 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 .rows { display: grid; gap: 8px; }
 .item { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; }
 .item h3 { margin: 0 0 6px; font-size: 15px; }
-.choice { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; font-size: 14px; padding: 4px 0; align-items: baseline; }
+.choice { width: 100%; text-align: left; display: grid; grid-template-columns: auto 1fr auto; gap: 6px; font-size: 14px; padding: 4px 0; align-items: baseline; }
 .choice.changed { background: var(--diff); margin: 0 -6px; padding: 4px 6px; border-radius: 8px; }
 .choice .store { color: var(--muted); font-size: 12px; display: block; }
 .choice .cost { font-weight: 650; font-variant-numeric: tabular-nums; }
 .error { color: var(--out); }
 .locked { padding-top: 40px; }
+
+.sheet {
+  border: 0; border-radius: 20px 20px 0 0; margin: auto 0 0; width: 100%; max-width: 100%;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); background: var(--card); color: var(--fg);
+}
+.sheet::backdrop { background: rgba(0, 0, 0, .35); }
+.sheet form { max-width: 608px; margin: 0 auto; display: grid; gap: 8px; }
+.sheet-title { margin: 0 0 4px; }
+.sheet-title a { color: var(--accent); }
+.sheet-actions { display: grid; gap: 8px; }
+.sheet-action { padding: 14px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); text-align: left; }

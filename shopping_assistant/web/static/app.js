@@ -135,7 +135,10 @@ function planError(message) {
   $("#plan-status").innerHTML = `<span class="error">${esc(message)}</span>`;
 }
 
+let lastPlan = null;
+
 function renderPlan(result) {
+  lastPlan = result;
   if (!result.options.length) {
     return planError("No way to buy this list with the shops and prices we have. Try “Find the best shop” to fetch prices.");
   }
@@ -155,17 +158,49 @@ function renderPlan(result) {
     const all = $("#show-all").checked;
     $("#rows").innerHTML = result.rows.filter(r => all || r.differs).map(r => {
       const first = r.cells[0] && r.cells[0].product;
+      const row = result.rows.indexOf(r);
       return `<div class="item"><h3>${esc(r.name)}</h3>${r.cells.map((c, i) => c ? `
-        <div class="choice ${i > 0 && c.product !== first ? "changed" : ""}">
+        <button class="choice ${i > 0 && c.product !== first ? "changed" : ""}" data-row="${row}" data-cell="${i}">
           <span class="letter">${result.options[i].letter}</span>
           <span><span class="store">${esc(c.store)}</span>${c.packs > 1 ? c.packs + "× " : ""}${esc(c.product)}</span>
-          <span class="cost">${money(c.cost)}</span></div>` : "").join("")}</div>`;
+          <span class="cost">${money(c.cost)}</span></button>` : "").join("")}</div>`;
     }).join("") || `<p class="muted">Every option buys the same things.</p>`;
   };
   $("#all-wrap").hidden = false;
   $("#show-all").onchange = draw;
   draw();
 }
+
+// Tap a product in the comparison to say what you think of it.
+const CHAIN = {tesco: "Tesco", sainsburys: "Sainsbury's", aldi: "Aldi", waitrose: "Waitrose", ms: "M&S", coop: "Co-op"};
+
+$("#rows").addEventListener("click", e => {
+  const b = e.target.closest(".choice");
+  if (!b || !lastPlan) return;
+  const row = lastPlan.rows[Number(b.dataset.row)];
+  const c = row.cells[Number(b.dataset.cell)];
+  const shop = CHAIN[c.chain] || c.chain;
+  const actions = [
+    ["never-product", `Never buy this one again`],
+    ["not-from-chain", `Don't buy ${row.name.toLowerCase()} at ${shop}`],
+  ];
+  if (c.own_label) actions.push(["no-own-label", `${shop}'s own brand isn't good enough for this`]);
+  actions.push(["reset", `Forget my rules for ${row.name.toLowerCase()}`]);
+  $("#sheet .sheet-title").innerHTML = `<strong>${esc(c.product)}</strong><br><span class="muted">${esc(c.store)} · ${money(c.cost)}</span>`
+    + (c.url ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">see it</a>` : "");
+  $("#sheet .sheet-actions").innerHTML = actions.map(([a, label]) =>
+    `<button value="${a}" class="sheet-action">${esc(label)}</button>`).join("");
+  $("#sheet").returnValue = "";
+  $("#sheet").onclose = async () => {
+    const action = $("#sheet").returnValue;
+    if (!action || action === "cancel") return;
+    try {
+      await api("/api/pref", {action, item_id: row.item_id, key: c.key, chain: c.chain});
+      compare(false);  // same prices, new rules
+    } catch (err) { alert(err.message); }
+  };
+  $("#sheet").showModal();
+});
 
 $("#compare").addEventListener("click", () => compare(true));
 $("#compare-saved").addEventListener("click", () => compare(false));
