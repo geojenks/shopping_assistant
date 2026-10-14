@@ -216,9 +216,10 @@ class BrowserFetcher:
     def _enter_postcode(self, site: Site) -> bool:
         """Get past a "which store are you near?" page (Co-op). True if there was one."""
         box = self.page.locator(site.postcode_input).first
+        self._accept_cookies()
         try:
-            if not box.is_visible(timeout=1500):
-                return False
+            # The box is drawn by the page's scripts after it loads, so give it a moment.
+            box.wait_for(state="visible", timeout=8000)
         except Exception:
             return False
         if not self.postcode:

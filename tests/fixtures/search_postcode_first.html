@@ -16,7 +16,7 @@
     document.getElementById('results').hidden = false;
     document.getElementById('store').textContent = 'Shopping near ' + saved;
   } else {
-    document.getElementById('welcome').hidden = false;
+    setTimeout(() => { document.getElementById('welcome').hidden = false; }, 1500);  // drawn late
   }
   document.getElementById('f').addEventListener('submit', e => {
     e.preventDefault();
