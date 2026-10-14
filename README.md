@@ -144,11 +144,14 @@ a price history.
 | Aldi | aldi.co.uk product search (shop prices; Aldi doesn't deliver) | Yes, October 2026 |
 | Waitrose | waitrose.com search | Yes, October 2026 |
 | M&S | M&S's range on Ocado (M&S sells food online through Ocado; shop prices can differ slightly) | Yes, October 2026 |
-| Tesco | tesco.com grocery search | No: Tesco blocks servers, so it needs a run from home |
-| Co-op | shop.coop.co.uk search, after entering your postcode | No: blocks servers too; postcode step tested on a hand-made page |
+| Tesco | tesco.com grocery search | Yes, from a home connection with Chrome (October 2026) |
+| Morrisons | groceries.morrisons.com search | Yes, October 2026 |
+| Iceland | iceland.co.uk search | Yes, October 2026 |
+| Co-op | shop.coop.co.uk search, after entering your postcode | Off by default: its security service turns away automated visits even from home |
+| Asda | not set up | Cloudflare's bot check stops it from a server; untried from home |
 
-Sainsbury's, Aldi, Waitrose and Ocado work from a server; Tesco and Co-op only
-from a home connection, so running it on your own computer covers all six. Setup:
+Sainsbury's, Aldi, Waitrose, Ocado, Morrisons and Iceland work from a server; Tesco
+only from a home connection, so running it on your own computer covers them all. Setup:
 
 ```sh
 pip install -e '.[web]'

@@ -172,7 +172,8 @@ function renderPlan(result) {
 }
 
 // Tap a product in the comparison to say what you think of it.
-const CHAIN = {tesco: "Tesco", sainsburys: "Sainsbury's", aldi: "Aldi", waitrose: "Waitrose", ms: "M&S", coop: "Co-op"};
+const CHAIN = {tesco: "Tesco", sainsburys: "Sainsbury's", aldi: "Aldi", waitrose: "Waitrose", ms: "M&S", coop: "Co-op",
+  iceland: "Iceland", morrisons: "Morrisons"};
 
 $("#rows").addEventListener("click", e => {
   const b = e.target.closest(".choice");

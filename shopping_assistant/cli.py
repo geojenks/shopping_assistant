@@ -185,7 +185,8 @@ def _sites(chains: str | None, db: Database):
         return [SITES[c] for c in wanted]
     # Default: the chains you've set up stores for.
     chains_with_stores = {s.chain for s in db.stores()}
-    return [site for chain, site in SITES.items() if chain in chains_with_stores] or list(SITES.values())
+    enabled = [site for site in SITES.values() if site.enabled]
+    return [site for site in enabled if site.chain in chains_with_stores] or enabled
 
 
 def _fetcher(args, db: Database, save_dir: Path | None = None):

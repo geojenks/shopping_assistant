@@ -13,8 +13,11 @@ HOME = (51.4686, -2.5602)  # BS5 6JS
     ({"brand": "Tesco Express", "name": "Tesco Express"}, None),  # small range, higher prices
     ({"name": "Little Waitrose & Partners"}, None),
     ({"brand": "M&S Foodhall"}, "ms"),
-    ({"name": "The Co-operative Food"}, "coop"),
-    ({"name": "Scoopaway"}, None),  # contains "coop" but isn't one
+    ({"name": "The Co-operative Food"}, None),  # Co-op's site turns away automated visits
+    ({"brand": "Iceland"}, "iceland"),
+    ({"name": "The Food Warehouse"}, None),
+    ({"brand": "Morrisons"}, "morrisons"),
+    ({"name": "Morrisons Daily"}, None),  # convenience format
     ({"brand": "Lidl"}, None),  # no price source yet
 ])
 def test_chain_of(tags, chain):
@@ -38,7 +41,7 @@ def test_nearby_stores_keeps_nearest_branches_and_adds_delivery():
     tesco = next(s for s in pickups if s.chain == "tesco")
     assert tesco.loyalty_member and tesco.lat == 51.4720 and tesco.distance_miles < 0.5
     deliveries = {s.chain for s in stores if s.delivery}
-    assert {"tesco", "sainsburys", "waitrose", "ms", "coop"} <= deliveries
+    assert {"tesco", "sainsburys", "waitrose", "ms", "iceland", "morrisons"} <= deliveries
     assert "aldi" not in deliveries
 
 

@@ -28,6 +28,7 @@ class Site:
     note: str = ""
     extra_wait_ms: int = 0
     postcode_input: str = ""  # selector for a "your postcode" box shown before searching is allowed
+    enabled: bool = True  # included in price checks unless named with --chains
 
     def url_for(self, query: str) -> str:
         return self.search_url.format(query=quote_plus(query))
@@ -120,6 +121,24 @@ SITES: dict[str, Site] = {s.chain: s for s in [
         own=("co-op", "coop", "the co-operative"),
         loyalty_words=("member price", "members price", "member"),
         postcode_input="input#postcode",  # it sends you to /welcome to pick your local store first
-        note="Needs your postcode (shop set postcode ...). Blocks servers: run from home.",
+        note="Off: blocks automated visits even from home (Imperva). Use --chains coop to try anyway.",
+        enabled=False,
+    ),
+    Site(
+        chain="iceland",
+        search_url="https://www.iceland.co.uk/search?q={query}",
+        product_link=r"/p/[^/?#]+/(\d+)\.html",
+        premium=("iceland luxury",),
+        own=("iceland",),
+        note="Iceland's own website prices; The Food Warehouse can differ.",
+    ),
+    Site(
+        chain="morrisons",
+        search_url="https://groceries.morrisons.com/search?q={query}",
+        product_link=r"/products/[^?#]*?[/-](\d{4,})",
+        premium=("morrisons the best", "the best"),
+        value=("morrisons savers", "savers"),
+        own=("morrisons", "market street", "nutmeg"),
+        loyalty_words=("more card price", "more card", "my morrisons"),
     ),
 ]}

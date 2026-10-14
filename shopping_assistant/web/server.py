@@ -77,7 +77,7 @@ class PlanJob:
         from ..prices.collect import collect
         from ..prices.sites import SITES
 
-        sites = [SITES[c] for c in sorted({s.chain for s in db.stores()}) if c in SITES]
+        sites = [SITES[c] for c in sorted({s.chain for s in db.stores()}) if c in SITES and SITES[c].enabled]
         total = len(items) * len(sites)
         done = 0
         failed: set[str] = set()

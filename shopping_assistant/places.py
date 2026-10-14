@@ -32,7 +32,8 @@ CHAINS = {
     "aldi": (("aldi",), ()),
     "waitrose": (("waitrose",), ("little waitrose",)),
     "ms": (("m&s", "marks & spencer", "marks and spencer"), ("m&s food to go",)),
-    "coop": (("co-op", "co-operative"), ()),
+    "iceland": (("iceland",), ("food warehouse",)),
+    "morrisons": (("morrisons",), ("daily",)),
 }
 
 # Rough delivery terms (October 2026) so delivery can be compared at all. Fees vary by slot:
@@ -42,7 +43,8 @@ DELIVERY = {
     "sainsburys": DeliveryTerms(fee=5.00, min_basket=40, under_min_charge=7.00, note="estimate: fee varies by slot"),
     "waitrose": DeliveryTerms(fee=5.00, min_basket=60, note="estimate: fee varies by slot"),
     "ms": DeliveryTerms(fee=4.00, min_basket=40, note="via Ocado; estimate: fee varies by slot"),
-    "coop": DeliveryTerms(fee=1.99, min_basket=15, note="'delivery from £1.99, £15 minimum' on shop.coop.co.uk"),
+    "iceland": DeliveryTerms(fee=0.00, min_basket=40, note="estimate: free delivery over £40"),
+    "morrisons": DeliveryTerms(fee=4.50, min_basket=40, note="estimate: fee varies by slot"),
 }
 
 
@@ -79,7 +81,8 @@ def osm_supermarkets(lat: float, lon: float, radius_km: float) -> list[dict]:
     around = f"(around:{int(radius_km * 1000)},{lat},{lon})"
     # Co-ops are often mapped as convenience shops; only branded ones matter here.
     query = (f'[out:json][timeout:50];(nwr["shop"="supermarket"]{around};'
-             f'nwr["shop"="convenience"]["brand"]{around};);out center tags;')
+             f'nwr["shop"="convenience"]["brand"]{around};'
+             f'nwr["shop"="frozen_food"]{around};);out center tags;')  # Iceland is often mapped as frozen food
     data = urllib.parse.urlencode({"data": query}).encode()
     last_error: Exception | None = None
     for url in OVERPASS:

@@ -18,6 +18,9 @@ NOW = re.compile(r"\bnow\b", re.I)
 WAS = re.compile(r"\b(was|ordinarily)\b", re.I)  # Ocado says "Ordinarily £2.65"
 # Prices shown side by side run together in page text: "£1.6573p / ltr" is £1.65 and 73p/ltr.
 GLUED = re.compile(r"(£\s?\d+\.\d{2}|(?<![\d.£])\d{1,3}p)(?=£|\d)")
+# Iceland splits offers over lines: "2 / for / £3.00" and "Mix & Match from / £1.50 / each".
+SPLIT_MULTIBUY = re.compile(r"\b(\d+)\s*\n\s*for\s*\n\s*(£\s?\d+(?:\.\d{1,2})?|\d{1,3}p)\b", re.I)
+SPLIT_FROM = re.compile(r"\bfrom\s*\n\s*(£\s?\d+(?:\.\d{1,2})?|\d{1,3}p)\s*\n\s*each\b", re.I)
 NOISE = re.compile(r"^(add|write a review|rest of shelf|quantity|sponsored|new|offer|view|save|"
                    r"\d+(\.\d)? out of 5|\(\d+\)|reviews?|\d+ reviews?)$", re.I)
 
@@ -47,6 +50,7 @@ def _money(text: str) -> float | None:
 def parse_tile(chain: str, product_id: str, name: str, text: str, url: str = "",
                loyalty_words: tuple[str, ...] = ()) -> Listing:
     listing = Listing(chain=chain, id=product_id, name=" ".join(name.split()), url=url)
+    text = SPLIT_FROM.sub(r"from \1 each", SPLIT_MULTIBUY.sub(r"\1 for \2", text))
     lines = [" ".join(l.split()) for l in GLUED.sub(r"\1\n", text).splitlines()]
     lines = [l for l in lines if l and l.casefold() != listing.name.casefold() and not NOISE.match(l)]
     loyalty = tuple(w.casefold() for w in loyalty_words)

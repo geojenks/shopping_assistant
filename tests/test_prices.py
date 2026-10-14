@@ -295,3 +295,34 @@ def test_postcode_page_is_filled_in_before_searching(browser):
     [milk] = browser.search(site, "milk")
     assert (milk.name, milk.price, milk.loyalty_price) == ("Co-op British Semi Skimmed Milk 4 Pints", 1.65, 1.50)
     assert browser.page.inner_text("#store") == "Shopping near BS5 6JS"
+
+
+REAL_TILES["iceland"] = [
+    {"href": "https://www.iceland.co.uk/p/iceland-british-semi-skimmed-milk-2-litres/19492.html",
+     "name": "Iceland British Semi-Skimmed Milk 2 Litres",
+     "text": "Iceland British Semi-Skimmed Milk 2 Litres\n\n2\nfor\n£3.00\n\nMix & Match\n\n£0.75/1l\n\nMix & Match from\n"
+             "£1.50\neach\n\n£1.65\n\n£0.83/1l\n\nAdd to Basket"},
+    {"href": "https://www.iceland.co.uk/p/arla-lactofree-semi-skimmed-milk-drink-1l/69967.html",
+     "name": "Arla LactoFREE Semi Skimmed Milk Drink 1L",
+     "text": "Sponsored\n\nArla LactoFREE Semi Skimmed Milk Drink 1L\n£1.35\n\n£1.35/1l\n\nSale - Was £1.95\n\nAdd to Basket"},
+]
+REAL_TILES["morrisons"] = [
+    {"href": "https://groceries.morrisons.com/products/morrisons-for-farmers-british-semi-skimmed-milk-2-pint/113155720",
+     "name": "Morrisons For Farmers British Semi Skimmed Milk 2 Pint",
+     "text": "Sponsored\nMorrisons For Farmers British Semi Skimmed Milk 2 Pint\nLIFE 6d+\n(0)\n"
+             "Rating, 0.0 out of 5 from 0 reviews.\nMorrisons For Farmers British Semi Skimmed Milk 2 Pint\n1.136L\n"
+             "Ordinarily £1.14/litre\n(£1.14/litre)\nPrice\n£1.29\nAdd"},
+]
+
+
+def test_iceland_multibuy_split_over_lines():
+    assert real("iceland") == [
+        ("19492", "Iceland British Semi-Skimmed Milk 2 Litres", 1.65, None, 2, 3.0),
+        ("69967", "Arla LactoFREE Semi Skimmed Milk Drink 1L", 1.35, None, None, None),
+    ]
+    assert tier_and_brand(SITES["iceland"], "Iceland British Semi-Skimmed Milk 2 Litres") == (Tier.OWN, "")
+
+
+def test_morrisons_like_ocado():
+    assert real("morrisons") == [
+        ("113155720", "Morrisons For Farmers British Semi Skimmed Milk 2 Pint", 1.29, None, None, None)]
