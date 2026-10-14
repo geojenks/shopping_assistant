@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 import random
 import re
+import shutil
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -113,24 +115,39 @@ def tiles_to_listings(site: Site, tiles: list[dict]) -> list[Listing]:
 class BrowserSetup:
     """Which browser to drive and how. Sites differ in what their bot checks accept."""
 
-    channel: str = ""  # "" = Playwright's own Chromium; "chrome" or "msedge" = the installed browser
+    # "" = Playwright's Chromium (a cut-down build when hidden); "chromium" = Playwright's full Chromium;
+    # "system" = the computer's own Chromium (Raspberry Pi OS has one); "chrome" / "msedge" = installed browsers
+    channel: str = ""
     headless: bool = True
     stealth: bool = True  # hide the automation flags and the "HeadlessChrome" user agent
 
     @property
     def label(self) -> str:
-        name = {"": "built-in Chromium", "chrome": "Google Chrome", "msedge": "Microsoft Edge"}[self.channel]
+        name = {"": "built-in Chromium", "chromium": "full Chromium", "system": "this computer's Chromium",
+                "chrome": "Google Chrome", "msedge": "Microsoft Edge"}[self.channel]
         return f"{name}, {'hidden' if self.headless else 'window'}{'' if self.stealth else ', plain'}"
 
 
-# What `shop prices doctor` tries, in order.
+# What `shop prices doctor` tries, in order. Chrome and Edge got past Tesco on Windows; neither exists
+# for a Raspberry Pi, where the full or system Chromium is the hope.
 SETUPS = (
     BrowserSetup(),
     BrowserSetup(stealth=False),
+    BrowserSetup(channel="chromium"),
+    BrowserSetup(channel="system"),
+    BrowserSetup(channel="system", headless=False),
     BrowserSetup(channel="chrome"),
     BrowserSetup(channel="chrome", headless=False),
     BrowserSetup(channel="msedge", headless=False),
 )
+
+
+def system_chromium() -> str:
+    for name in ("chromium", "chromium-browser"):
+        path = shutil.which(name)
+        if path:
+            return path
+    raise FileNotFoundError("no Chromium installed (on Raspberry Pi OS: sudo apt install chromium)")
 
 
 class SiteNeedsSetup(Exception):
@@ -155,9 +172,14 @@ class BrowserFetcher:
         self._last = 0.0
 
     def _launch(self, profile_dir: str | Path, setup: BrowserSetup) -> None:
+        if not setup.headless and sys.platform.startswith("linux") and not (
+                os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+            raise RuntimeError("needs a screen: on a computer without one, run this under xvfb-run")
         launch: dict = {"headless": setup.headless, "locale": "en-GB", "timezone_id": "Europe/London",
                         "viewport": {"width": 1366, "height": 900}}
-        if setup.channel:
+        if setup.channel == "system":
+            launch["executable_path"] = system_chromium()
+        elif setup.channel:
             launch["channel"] = setup.channel
         elif os.environ.get("SHOP_CHROMIUM"):
             launch["executable_path"] = os.environ["SHOP_CHROMIUM"]

@@ -10,8 +10,8 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
-web = ["playwright>=1.45"]
-dev = ["pytest>=8", "playwright>=1.45"]
+web = ["playwright>=1.49"]
+dev = ["pytest>=8", "playwright>=1.49"]
 
 [project.scripts]
 shop = "shopping_assistant.cli:main"
