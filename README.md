@@ -62,6 +62,9 @@ phone (it then remembers you), then **Share → Add to Home Screen** (iPhone) or
 
 - browse the **Shop** tab by aisle (or search it) and add things to the basket,
   each showing the cheapest price found so far
+- not in the catalogue? **Looking for something specific?** searches every shop
+  live (about 10 seconds a shop) and lets you add one exact product or the thing
+  in general ("tahini, any brand") to the aisle you choose, prices included
 - add things as you run low or run out, with suggestions from the catalogue
   (anything new becomes a new item)
 - change quantities, tick things off as bought (with undo), and see who added what
@@ -160,7 +163,7 @@ a price history.
 | Morrisons | groceries.morrisons.com search | Yes, October 2026 |
 | Iceland | iceland.co.uk search | Yes, October 2026 |
 | Co-op | shop.coop.co.uk search, after entering your postcode | Off by default: its security service turns away automated visits even from home |
-| Asda | not set up | Cloudflare's bot check stops it from a server; untried from home |
+| Asda | asda.com/groceries search | Yes, from a home connection (October 2026) |
 
 Sainsbury's, Aldi, Waitrose, Ocado, Morrisons and Iceland work from a server; Tesco
 only from a home connection, so running it on your own computer covers them all. Setup:

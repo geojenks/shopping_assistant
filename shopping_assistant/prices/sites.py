@@ -143,14 +143,14 @@ SITES: dict[str, Site] = {s.chain: s for s in [
     ),
     Site(
         chain="asda",
-        # Untested: Cloudflare stops this server. If a probe from home finds nothing, it lists the links it saw.
+        # Cloudflare stops servers; works from a home connection (checked October 2026).
         search_url="https://www.asda.com/groceries/search/{query}",
         product_link=r"/groceries/product/(?:[^/?#]+/)*?[^/?#]*?(\d{6,})(?:[/?#]|$)",
         premium=("asda extra special", "extra special", "asda exceptional"),
         value=("just essentials by asda", "asda just essentials", "just essentials"),
         own=("asda",),
         loyalty_words=("rewards price", "asda rewards"),
-        note="Untested: Cloudflare checks every visit; try `shop prices probe asda milk --show-browser` from home.",
+        note="Blocks servers (Cloudflare): works from a home connection.",
         extra_wait_ms=3000,
     ),
 ]}

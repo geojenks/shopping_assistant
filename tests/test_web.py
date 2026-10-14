@@ -114,3 +114,42 @@ def test_browse_the_shop_and_add_from_a_shelf(tmp_path):
     finally:
         httpd.shutdown()
     assert Database(db_path).purchases() == []  # no made-up history
+
+
+def test_find_something_not_in_the_catalogue(tmp_path):
+    from contextlib import contextmanager
+    from shopping_assistant.db import Database
+    from shopping_assistant.prices.tiles import Listing
+    from shopping_assistant.web.server import FindJob
+
+    db_path = str(tmp_path / "find.db")
+    main(["--db", db_path, "init"])
+
+    class Shops:
+        def search(self, site, query):
+            if site.chain == "aldi":
+                raise TimeoutError("slow")
+            return [Listing(site.chain, "1", f"{site.chain.title()} Tahini 300g", price=3.0),
+                    Listing(site.chain, "2", "Tahini & Lime Dressing 250ml", price=4.0)]
+
+    @contextmanager
+    def fetcher(db):
+        yield Shops()
+
+    finder = FindJob(db_path)
+    assert finder.start("tahini", fetcher)
+    for _ in range(100):
+        if finder.state["state"] != "running":
+            break
+        time.sleep(0.05)
+    results = {r["chain"]: r for r in finder.state["results"]}
+    assert results["aldi"]["error"] and results["tesco"]["products"][0]["name"] == "Tesco Tahini 300g"
+
+    db = Database(db_path)
+    item = finder.add(db, "generic", "Food cupboard", who="Sam")
+    assert (item.name, item.category, item.group) == ("Tahini", "Food cupboard", "Added by you")
+    assert {p.chain for p in db.products(item.id)} >= {"tesco", "sainsburys"}
+    one = finder.add(db, "product", "Food cupboard", "tesco", "1")
+    assert (one.name, one.size, one.unit) == ("Tesco Tahini 300g", 300, "g")
+    assert [p.name for p in db.products(one.id) if p.chain == "tesco"] == ["Tesco Tahini 300g"]
+    assert {e.item_id for e in db.shopping_list()} == {item.id, one.id}

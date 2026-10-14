@@ -84,7 +84,9 @@ document.addEventListener("click", e => {
   const t = e.target.closest("button");
   if (!t) return;
   const item = t.dataset;
-  if (item.aisle) { aisle = item.aisle; renderShop(); window.scrollTo(0, 0); }
+  if (item.findGeneric) addFound({mode: "generic"});
+  else if (item.findChain) addFound({mode: "product", chain: item.findChain, id: item.findId});
+  else if (item.aisle) { aisle = item.aisle; renderShop(); window.scrollTo(0, 0); }
   else if (item.addId) act("/api/add", {item_id: item.addId, text: item.addId, status: "want", who});
   else if (item.add) act("/api/add", {text: item.add, qty: Number(item.qty) || 1, who});
   else if (item.bought) act("/api/bought", {item_id: item.bought, who});
@@ -160,9 +162,62 @@ function renderShop() {
     if (!items.length) return "";
     return `<h2>${esc(q ? `${a.name} · ${sh.name}` : sh.name || a.name)}</h2><ul class="list">${items.map(itemCard).join("")}</ul>`;
   }).join("")).join("");
-  $("#shelves").innerHTML = html || (q
-    ? `<p class="muted">Nothing called “${esc(q)}”. <button class="ghost" data-add="${esc(q)}">Add “${esc(q)}” to the list</button></p>`
-    : "");
+  $("#shelves").innerHTML = html || (q ? `<p class="muted">Nothing called “${esc(q)}” in the catalogue yet.</p>` : "");
+  if (q && !finding) $("#find-text").value = q;
+}
+
+// --- "looking for something specific?": search the shops live ---------------------
+
+let finding = null;
+
+$("#find-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const query = $("#find-text").value.trim();
+  if (!query) return;
+  try { await api("/api/find", {query}); } catch (err) { return alert(err.message); }
+  clearInterval(finding);
+  finding = setInterval(pollFind, 1500);
+  pollFind();
+});
+
+async function pollFind() {
+  let job;
+  try { job = await api("/api/find"); } catch (e) { return; }
+  if (job.state !== "running") { clearInterval(finding); finding = null; }
+  renderFind(job);
+}
+
+function renderFind(job) {
+  if (!job.query) return;
+  const aisles = (catalogue ? catalogue.aisles.map(a => a.name) : []).filter(a => a !== "Other").concat("Other");
+  const pick = `<label class="muted small">Put it in
+      <select id="find-aisle">${aisles.map(a => `<option>${esc(a)}</option>`).join("")}</select></label>`;
+  const head = `<div class="find-head">
+      <button class="add-one" data-find-generic="1">Add “${esc(job.query)}”, any brand</button> ${pick}</div>`;
+  const status = job.state === "running" ? `<p class="muted">${esc(job.progress || "Searching…")}</p>`
+    : job.state === "error" ? `<p class="error">${esc(job.error)}</p>` : "";
+  const shops = (job.results || []).map(r => `
+    <h2>${esc(CHAIN[r.chain] || r.chain)}</h2>
+    ${r.error ? `<p class="error small">Couldn't search: ${esc(r.error)}</p>`
+      : !r.products.length ? `<p class="muted small">Nothing found.</p>`
+      : `<ul class="list">${r.products.map(p => `
+        <li class="row shop-row"><div class="name"><strong>${esc(p.name)}</strong>
+          <span class="meta">${money(p.price)}${p.loyalty_price ? ` · card ${money(p.loyalty_price)}` : ""}${p.multibuy ? " · " + esc(p.multibuy) : ""}
+          ${p.url ? ` · <a href="${esc(p.url)}" target="_blank" rel="noopener">see it</a>` : ""}</span></div>
+          <button class="ghost" data-find-chain="${esc(r.chain)}" data-find-id="${esc(p.id)}">Add this one</button></li>`).join("")}</ul>`}`).join("");
+  const keep = $("#find-aisle") && $("#find-aisle").value;
+  $("#find-results").innerHTML = head + status + shops;
+  if (keep) $("#find-aisle").value = keep;
+  else if (aisle) $("#find-aisle").value = aisle;
+}
+
+async function addFound(body) {
+  try {
+    state = await api("/api/find/add", {...body, aisle: $("#find-aisle").value, who});
+    render();
+    await loadCatalogue();
+    $("#find-results").insertAdjacentHTML("afterbegin", `<p class="ok">Added to the list, and to the ${esc($("#find-aisle").value)} aisle.</p>`);
+  } catch (err) { alert(err.message); }
 }
 
 $("#shop-search").addEventListener("input", renderShop);

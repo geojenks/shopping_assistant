@@ -333,13 +333,17 @@ class Database:
         text = " ".join(text.split())
         item = self.find_item(text)
         if item is None:
-            base = re.sub(r"[^a-z0-9]+", "-", text.casefold()).strip("-") or "item"
-            item_id, n = base, 2
-            while item_id in self.items():
-                item_id, n = f"{base}-{n}", n + 1
-            item = Item(item_id, text[:1].upper() + text[1:], keywords=(text,), search=text)
+            item = Item(self.new_item_id(text), text[:1].upper() + text[1:], keywords=(text,), search=text)
             self.upsert_item(item)
         return item
+
+    def new_item_id(self, name: str) -> str:
+        base = re.sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")[:60] or "item"
+        existing = self.items()
+        item_id, n = base, 2
+        while item_id in existing:
+            item_id, n = f"{base}-{n}", n + 1
+        return item_id
 
     def mark_bought(self, item_id: str, who: str = "") -> int:
         """Take an item off the list and remember buying it (for "usually buy" suggestions)."""

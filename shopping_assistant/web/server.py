@@ -26,6 +26,18 @@ STATIC = Path(__file__).parent / "static"
 COOKIE = "shop_key"
 
 
+BROWSER = threading.Lock()  # price checks and searches share one browser profile: one at a time
+
+
+def _shop_sites(db: Database):
+    """The shops to search: those with stores set up and prices we can read."""
+    from ..prices.sites import SITES
+
+    chains = {s.chain for s in db.stores()}
+    enabled = [site for site in SITES.values() if site.enabled]
+    return [site for site in enabled if site.chain in chains] or enabled
+
+
 class PlanJob:
     """One "find the best shop" run at a time: optionally refresh prices, then plan."""
 
@@ -75,9 +87,8 @@ class PlanJob:
     def _refresh_prices(self, db: Database, items, fetcher_factory) -> set[str]:
         """Fetch today's prices for `items`; returns the chains that couldn't be checked."""
         from ..prices.collect import collect
-        from ..prices.sites import SITES
 
-        sites = [SITES[c] for c in sorted({s.chain for s in db.stores()}) if c in SITES and SITES[c].enabled]
+        sites = _shop_sites(db)
         total = len(items) * len(sites)
         done = 0
         failed: set[str] = set()
@@ -91,12 +102,95 @@ class PlanJob:
                 failed.add(outcome.chain)
             self._progress(f"Checking prices: {done} of {total} searches")
 
-        with fetcher_factory(db) as fetcher:
+        self._progress("Waiting for the browser…")
+        with BROWSER, fetcher_factory(db) as fetcher:
             collect(items, sites, fetcher, on_result=on_result)
         return failed
 
 
-def make_handler(db_path: str, key: str, job: PlanJob, fetcher_factory):
+class FindJob:
+    """"Looking for something specific?": search every shop live for whatever was typed."""
+
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self.lock = threading.Lock()
+        self.state: dict = {"state": "idle"}
+        self.listings: dict[str, list] = {}  # chain -> Listing, for adding one afterwards
+
+    def start(self, query: str, fetcher_factory) -> bool:
+        with self.lock:
+            if self.state.get("state") == "running":
+                return False
+            self.state = {"state": "running", "query": query, "progress": "Starting…", "results": []}
+            self.listings = {}
+        threading.Thread(target=self._run, args=(query, fetcher_factory), daemon=True).start()
+        return True
+
+    def _run(self, query: str, fetcher_factory) -> None:
+        db = Database(self.db_path)
+        try:
+            sites = _shop_sites(db)
+            with self.lock:
+                self.state["progress"] = "Waiting for the browser…"
+            with BROWSER, fetcher_factory(db) as fetcher:
+                for n, site in enumerate(sites, 1):
+                    with self.lock:
+                        self.state["progress"] = f"Searching {site.chain} ({n} of {len(sites)})…"
+                    try:
+                        found = [l for l in fetcher.search(site, query) if l.available][:12]
+                        error = ""
+                    except Exception as e:
+                        found, error = [], str(e).splitlines()[0][:120]
+                    with self.lock:
+                        self.listings[site.chain] = found
+                        self.state["results"].append({"chain": site.chain, "error": error, "products": [
+                            {"id": l.id, "name": l.name, "price": l.price, "loyalty_price": l.loyalty_price,
+                             "multibuy": f"{l.multibuy_qty} for £{l.multibuy_price:.2f}" if l.multibuy_qty else "",
+                             "url": l.url} for l in found]})
+            with self.lock:
+                self.state.update(state="done", progress="")
+        except Exception as e:
+            traceback.print_exc()
+            with self.lock:
+                self.state.update(state="error", error=str(e).splitlines()[0][:300])
+        finally:
+            db.close()
+
+    def add(self, db: Database, mode: str, aisle: str, chain: str = "", product_id: str = "", who: str = ""):
+        """Make a catalogue item from the search ("any brand") or from one product, with its prices."""
+        from ..models import Item
+        from ..prices.collect import is_item, to_product
+        from ..prices.sites import SITES
+        from ..units import parse_sizes
+
+        with self.lock:
+            query = self.state.get("query", "")
+            listings = {c: list(ls) for c, ls in self.listings.items()}
+        if not query:
+            raise ValueError("search first")
+        if mode == "product":
+            chosen = next((l for l in listings.get(chain, []) if l.id == product_id), None)
+            if chosen is None:
+                raise ValueError("that product isn't in the latest search")
+            sizes = parse_sizes(chosen.name)
+            size, unit = sizes[0] if sizes else (None, "each")
+            words = " ".join(w for w in chosen.name.split() if not parse_sizes(w))
+            item = Item(db.new_item_id(chosen.name), chosen.name, aisle or "Other", (), size, unit,
+                        (words,), query, (), "Added by you")
+        else:
+            item = Item(db.new_item_id(query), query[:1].upper() + query[1:], aisle or "Other", (), None, "each",
+                        (query,), query, (), "Added by you")
+        db.upsert_item(item)
+        for c, found in listings.items():
+            if c in SITES:
+                db.replace_products(c, item.id, [to_product(SITES[c], item, l) for l in found if is_item(item, l.name)])
+        db.add_to_list(item.id, 1, "want", added_by=who)
+        return item
+
+
+def make_handler(db_path: str, key: str, job: PlanJob, fetcher_factory, finder: FindJob | None = None):
+    finder = finder or FindJob(db_path)
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "ShoppingAssistant/0.1"
 
@@ -152,6 +246,9 @@ def make_handler(db_path: str, key: str, job: PlanJob, fetcher_factory):
                     return self._json(job.state)
             if url.path == "/api/catalogue":
                 return self._json(self._catalogue())
+            if url.path == "/api/find":
+                with finder.lock:
+                    return self._json(finder.state)
             return self._static(url.path.lstrip("/"))
 
         def do_POST(self):
@@ -162,6 +259,11 @@ def make_handler(db_path: str, key: str, job: PlanJob, fetcher_factory):
             if path == "/api/plan":
                 started = job.start(bool(body.get("refresh", True)), fetcher_factory)
                 return self._json({"started": started})
+            if path == "/api/find":
+                query = " ".join(str(body.get("query", "")).split())
+                if not query:
+                    return self._json({"error": "what are you looking for?"}, 400)
+                return self._json({"started": finder.start(query, fetcher_factory)})
             db = Database(db_path)
             try:
                 if path == "/api/add":
@@ -177,6 +279,9 @@ def make_handler(db_path: str, key: str, job: PlanJob, fetcher_factory):
                     db.remove_from_list(body["item_id"])
                 elif path == "/api/undo":
                     db.undo_bought(int(body["purchase_id"]))
+                elif path == "/api/find/add":
+                    finder.add(db, body.get("mode", "generic"), str(body.get("aisle") or ""),
+                               str(body.get("chain") or ""), str(body.get("id") or ""), str(body.get("who") or ""))
                 elif path == "/api/pref":
                     action, item_id = body["action"], body["item_id"]
                     if action == "never-product":

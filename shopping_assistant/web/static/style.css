@@ -125,3 +125,12 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 .shop-row { grid-template-columns: 1fr auto; padding-left: 14px; }
 .shop-row.in { border-color: var(--accent); }
 .add-one { padding: 8px 14px; border-radius: 10px; background: var(--accent); color: var(--accent-fg); font-weight: 650; }
+
+.find { margin-top: 28px; padding-top: 4px; border-top: 1px solid var(--line); }
+.find-form { display: flex; gap: 8px; }
+.find-form input { flex: 1; min-width: 0; font: inherit; font-size: 16px; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+.find-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
+.find-head select { font: inherit; margin-left: 4px; padding: 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+.find a { color: var(--accent); }
+.ok { color: var(--accent); font-weight: 600; }

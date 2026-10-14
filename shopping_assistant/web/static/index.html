@@ -55,6 +55,15 @@
   <input id="shop-search" class="search" type="search" placeholder="Search the shop…" aria-label="Search the shop">
   <div id="aisles" class="aisles" role="tablist"></div>
   <div id="shelves"></div>
+  <section id="find" class="find">
+    <h2>Looking for something specific?</h2>
+    <p class="muted">Search every shop for it: a brand, a product, anything not listed.</p>
+    <form id="find-form" class="find-form" autocomplete="off">
+      <input id="find-text" type="search" placeholder="e.g. Heinz beanz, oat cakes, tahini" aria-label="Search the shops">
+      <button class="add-one" type="submit">Search shops</button>
+    </form>
+    <div id="find-results"></div>
+  </section>
 </main>
 
 <main id="plan-view" hidden>
