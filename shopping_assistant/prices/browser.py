@@ -55,13 +55,18 @@ EXTRACT_TILES = r"""
 }
 """
 
+# Cookie banners are answered "no": we only read prices, so nothing beyond the essential cookies is
+# needed. Where a banner has no way to say no, it's left alone (it rarely stops the page being read).
 COOKIE_BUTTONS = (
-    "#onetrust-accept-btn-handler",
-    "button:has-text('Accept all cookies')",
-    "button:has-text('Accept all')",
-    "button:has-text('Accept cookies')",
-    "button:has-text('Allow all')",
-    "button:has-text('I accept')",
+    "#onetrust-reject-all-handler",
+    "button:has-text('Reject all')",
+    "button:has-text('Reject cookies')",
+    "button:has-text('Reject additional cookies')",
+    "button:has-text('Reject non-essential')",
+    "button:has-text('Necessary cookies only')",
+    "button:has-text('Essential cookies only')",
+    "button:has-text('Only necessary')",
+    "button:has-text('Decline')",
 )
 
 
@@ -219,8 +224,8 @@ class BrowserFetcher:
             time.sleep(wait)
         self._last = time.monotonic()
 
-    def _accept_cookies(self, wait_ms: int = 0) -> bool:
-        """Click the cookie banner's accept button if there is one (waiting up to `wait_ms` for it)."""
+    def _decline_cookies(self, wait_ms: int = 0) -> bool:
+        """Turn down optional cookies if there's a banner (waiting up to `wait_ms` for it)."""
         either = self.page.locator(", ".join(COOKIE_BUTTONS)).first
         try:
             if wait_ms:
@@ -235,7 +240,7 @@ class BrowserFetcher:
         return False
 
     def _settle(self) -> None:
-        self._accept_cookies()
+        self._decline_cookies()
         try:
             self.page.wait_for_load_state("networkidle", timeout=15_000)
         except Exception:
@@ -253,8 +258,8 @@ class BrowserFetcher:
         if not self.postcode:
             raise SiteNeedsSetup(f"{site.chain} asks for a postcode first: shop set postcode \"AB1 2CD\"")
         self.log.append(f"postcode box found on {self.page.url}")
-        if self._accept_cookies(wait_ms=3000):
-            self.log.append("accepted cookies")
+        if self._decline_cookies(wait_ms=3000):
+            self.log.append("declined optional cookies")
         box.fill(self.postcode)
         submit = box.locator("xpath=ancestor::form[1]//button[@type='submit']").first
         try:
@@ -283,7 +288,7 @@ class BrowserFetcher:
         self.page.goto(url, wait_until="domcontentloaded", timeout=45_000)
         if site and site.postcode_input and self._enter_postcode(site):
             self.page.goto(url, wait_until="domcontentloaded", timeout=45_000)
-        self._accept_cookies()
+        self._decline_cookies()
         try:
             self.page.wait_for_load_state("networkidle", timeout=15_000)
         except Exception:

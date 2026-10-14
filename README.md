@@ -170,7 +170,7 @@ setup that gets through to the most shops. Run it again if a shop starts blockin
 `probe` prints what it read from one search and saves the page and a screenshot
 next to the database (`probe/`), so if a supermarket changes its website or shows
 a "verify you're human" page, you can see what happened. `--show-browser` lets
-you watch, accept cookies, or pass a check by hand; the browser profile is kept,
+you watch or pass a check by hand; the browser profile is kept,
 so you usually only do that once.
 
 Each item can have a `search` (what to type into the search box) and `exclude`
