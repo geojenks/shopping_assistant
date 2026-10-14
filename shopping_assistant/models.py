@@ -126,6 +126,8 @@ class Store:
     pickup: bool = True
     delivery: DeliveryTerms | None = None
     loyalty_member: bool = False
+    lat: float | None = None
+    lon: float | None = None
 
 
 @dataclass
@@ -158,10 +160,8 @@ class TravelCosts:
 
     per_mile: float = 0.30  # fuel; round trip miles are counted
     per_stop: float = 4.00  # what an extra stop is worth to you in time and hassle
+    per_mile_time: float = 0.50  # what a mile of driving is worth to you, on top of fuel
     max_distance_miles: float | None = 6.0
-
-    def mileage(self, store: Store) -> float:
-        return round(2 * (store.distance_miles or 0.0) * self.per_mile, 2)
 
 
 @dataclass
@@ -171,3 +171,4 @@ class Settings:
     default_own_label_ok: bool = True
     postcode: str = ""  # some shops (Co-op) price by local store
     browser: dict = field(default_factory=dict)  # BrowserSetup fields chosen by `shop prices doctor`
+    home: tuple[float, float] | None = None  # latitude, longitude, from `shop stores find`

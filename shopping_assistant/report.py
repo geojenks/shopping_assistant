@@ -21,9 +21,11 @@ def _summary(plan: Plan) -> str:
     parts = [f"goods £{plan.goods:.2f}"]
     for channel in plan.channels:
         if channel.label in plan.fees:
-            parts.append(f"{channel.store.name} delivery £{plan.fees[channel.label]:.2f}")
+            parts.append(f"{channel.label} £{plan.fees[channel.label]:.2f}")
     if plan.mileage:
         parts.append(f"fuel ~£{plan.mileage:.2f}")
+    if plan.route:
+        parts[-1] += f" ({plan.miles:g} mi: home → {' → '.join(s.name for s in plan.route)} → home)"
     trips = []
     if plan.stops:
         trips.append(f"{plan.stops} stop{'s' * (plan.stops > 1)}")

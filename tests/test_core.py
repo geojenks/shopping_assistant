@@ -104,14 +104,14 @@ def test_cheapest_split_when_stops_are_free():
     plans = plan_options(entries("milk", "beans", "kale", "tea"), ITEMS, PRODUCTS, [TESCO, ALDI],
                          Preferences(), settings(per_stop=0))
     best = plans[0]
-    assert {c.label for c in best.channels} == {"Tesco (pickup)", "Aldi (pickup)"}
+    assert {c.label for c in best.channels} == {"Tesco", "Aldi"}
     assert best.goods == round(1.45 + 0.39 + 0.79 + 2.75, 2)
 
 
 def test_extra_stop_not_worth_a_small_saving():
     plans = plan_options(entries("milk", "kale", "tea"), ITEMS, PRODUCTS, [TESCO, ALDI],
                          Preferences(), settings(per_stop=2.0))
-    assert [c.label for c in plans[0].channels] == ["Tesco (pickup)"]
+    assert [c.label for c in plans[0].channels] == ["Tesco"]
 
 
 def test_items_nobody_sells_are_reported_not_fatal():

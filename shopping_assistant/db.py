@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS items (
 CREATE TABLE IF NOT EXISTS stores (
     id TEXT PRIMARY KEY, chain TEXT NOT NULL, name TEXT NOT NULL, distance_miles REAL,
     pickup INTEGER NOT NULL DEFAULT 1, loyalty_member INTEGER NOT NULL DEFAULT 0,
-    delivery TEXT  -- JSON DeliveryTerms, NULL if the store doesn't deliver
+    delivery TEXT,  -- JSON DeliveryTerms, NULL if the store doesn't deliver
+    lat REAL, lon REAL
 );
 CREATE TABLE IF NOT EXISTS products (
     chain TEXT NOT NULL, id TEXT NOT NULL, item_id TEXT NOT NULL, name TEXT NOT NULL,
@@ -75,6 +76,10 @@ class Database:
         if columns and "search" not in columns:
             self.conn.execute("ALTER TABLE items ADD COLUMN search TEXT NOT NULL DEFAULT ''")
             self.conn.execute("ALTER TABLE items ADD COLUMN exclude TEXT NOT NULL DEFAULT '[]'")
+        columns = {r[1] for r in self.conn.execute("PRAGMA table_info(stores)")}
+        if columns and "lat" not in columns:
+            self.conn.execute("ALTER TABLE stores ADD COLUMN lat REAL")
+            self.conn.execute("ALTER TABLE stores ADD COLUMN lon REAL")
         columns = {r[1] for r in self.conn.execute("PRAGMA table_info(products)")}
         if columns and "url" not in columns:
             self.conn.execute("ALTER TABLE products RENAME TO products_old")
@@ -125,18 +130,30 @@ class Database:
 
     def upsert_store(self, store: Store) -> None:
         self.conn.execute(
-            "INSERT OR REPLACE INTO stores VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO stores VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (store.id, store.chain, store.name, store.distance_miles, int(store.pickup),
-             int(store.loyalty_member), json.dumps(asdict(store.delivery)) if store.delivery else None),
+             int(store.loyalty_member), json.dumps(asdict(store.delivery)) if store.delivery else None,
+             store.lat, store.lon),
         )
         self.conn.commit()
+
+    def replace_stores(self, stores: Iterable[Store]) -> None:
+        self.conn.execute("DELETE FROM stores")
+        self.conn.commit()
+        for store in stores:
+            self.upsert_store(store)
+
+    def remove_store(self, store_id: str) -> bool:
+        cur = self.conn.execute("DELETE FROM stores WHERE id = ?", (store_id,))
+        self.conn.commit()
+        return cur.rowcount > 0
 
     def stores(self) -> list[Store]:
         return [
             Store(r["id"], r["chain"], r["name"], r["distance_miles"], bool(r["pickup"]),
                   DeliveryTerms(**json.loads(r["delivery"])) if r["delivery"] else None,
-                  bool(r["loyalty_member"]))
-            for r in self.conn.execute("SELECT * FROM stores ORDER BY name")
+                  bool(r["loyalty_member"]), r["lat"], r["lon"])
+            for r in self.conn.execute("SELECT * FROM stores ORDER BY distance_miles IS NULL, distance_miles, name")
         ]
 
     def upsert_products(self, products: Iterable[Product], commit: bool = True) -> int:
@@ -192,7 +209,8 @@ class Database:
             for r in raw:
                 delivery = DeliveryTerms(**r["delivery"]) if r.get("delivery") else None
                 self.upsert_store(Store(r["id"], r["chain"], r["name"], r.get("distance_miles"),
-                                        r.get("pickup", True), delivery, r.get("loyalty_member", False)))
+                                        r.get("pickup", True), delivery, r.get("loyalty_member", False),
+                                        r.get("lat"), r.get("lon")))
             counts["stores"] = len(raw)
         if (directory / "prices.csv").exists():
             counts["products"] = self.upsert_products(read_prices_csv(directory / "prices.csv"))
@@ -241,13 +259,15 @@ class Database:
     def settings(self) -> Settings:
         raw = {r[0]: json.loads(r[1]) for r in self.conn.execute("SELECT key, value FROM settings")}
         travel = TravelCosts()
-        for key in ("per_mile", "per_stop", "max_distance_miles"):
+        for key in ("per_mile", "per_stop", "per_mile_time", "max_distance_miles"):
             if key in raw:
                 setattr(travel, key, raw[key])
         settings = Settings(travel=travel)
         for key in ("max_channels", "default_own_label_ok", "postcode", "browser"):
             if key in raw:
                 setattr(settings, key, raw[key])
+        if raw.get("home"):
+            settings.home = tuple(raw["home"])
         return settings
 
     def set_setting(self, key: str, value) -> None:

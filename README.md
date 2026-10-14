@@ -40,6 +40,26 @@ Without installing: `python -m shopping_assistant ...`. The database is
 **The sample prices are made up** to exercise the planner. They are roughly the
 right shape but not real.
 
+## Your shops
+
+```sh
+shop stores find --postcode "BS5 6JS"     # nearest 3 branches of each chain within 3 miles' drive
+shop stores                               # what it found
+shop stores delivery tesco 3.50 50 4      # your real delivery terms: fee, minimum, charge if under
+shop stores remove osm-w20442350          # a branch you never use
+```
+
+Shops come from OpenStreetMap, home from postcodes.io (both free). Tesco Express,
+Sainsbury's Local and Little Waitrose are left out: smaller range, higher prices
+than online. Lidl is left out because its website has no full price list.
+Delivery terms start as estimates, so correct them with `shop stores delivery`.
+
+A plan never uses two branches of one chain, and pickups are driven as one
+round trip in the shortest order (straight-line distance × 1.3 for roads), so
+Aldi and Lidl next door to each other cost a few hundred metres, not two trips.
+Each plan's cost of driving is fuel (`per_mile`, cash) plus what your time is
+worth (`per_mile_time`, `per_stop`), which only affects the ranking.
+
 ## How it decides
 
 - **Items vs products.** An *item* is the generic thing ("salted butter, 250g").
@@ -57,8 +77,8 @@ right shape but not real.
   650g item means two packs. Coming up to 10% short is accepted.
 - **Prices** use the lowest of shelf, promo, and loyalty price (if you have the
   card, set per store), and handle "4 for £2" multibuys.
-- **Getting it.** Each store can be a pickup (fuel at `per_mile` for the round
-  trip, plus `per_stop` for your time) and/or a delivery (fee, minimum basket,
+- **Getting it.** Each store can be a pickup (driven as one shortest route,
+  see above) and/or a delivery (fee, minimum basket,
   under-minimum charge or hard minimum, free-over threshold). Every combination
   of up to `max_channels` is costed. If a delivery basket is under its minimum,
   the planner compares paying the charge with moving items into that basket.

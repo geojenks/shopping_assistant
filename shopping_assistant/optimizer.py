@@ -15,6 +15,7 @@ from itertools import combinations
 from typing import Iterable, Literal
 
 from .models import Item, ListEntry, Product, Settings, Store
+from .places import best_route
 from .preferences import Preferences
 
 Mode = Literal["pickup", "delivery"]
@@ -27,7 +28,9 @@ class Channel:
 
     @property
     def label(self) -> str:
-        return f"{self.store.name} ({self.mode})"
+        if self.mode == "delivery":
+            return self.store.name if "delivery" in self.store.name.casefold() else f"{self.store.name} delivery"
+        return self.store.name
 
 
 @dataclass(frozen=True)
@@ -50,7 +53,9 @@ class Plan:
     channels: tuple[Channel, ...]
     lines: list[Line]
     fees: dict[str, float] = field(default_factory=dict)  # channel label -> delivery charges
-    mileage: float = 0.0
+    mileage: float = 0.0  # fuel, £
+    miles: float = 0.0
+    route: list[Store] = field(default_factory=list)  # pickup stops in driving order
     hassle: float = 0.0
     unavailable: list[str] = field(default_factory=list)
 
@@ -146,8 +151,8 @@ def plan_options(
     plans = []
     for k in range(1, settings.max_channels + 1):
         for combo in combinations(channels, k):
-            if len({c.store.id for c in combo}) < k:
-                continue  # pickup and delivery from the same shop is never worth it
+            if len({c.store.chain for c in combo}) < k:
+                continue  # two branches of one chain, or pickup and delivery from it, is never worth it
             plan = _evaluate(combo, buyable, items, choices, settings)
             if plan is not None:
                 plan.unavailable = unavailable
@@ -226,13 +231,16 @@ def _evaluate(
 
     lines = [Line(e, items[e.item_id], assignment[e.item_id],
                   choices[e.item_id][assignment[e.item_id].store.id]) for e in entries]
-    pickups = [c for c in combo if c.mode == "pickup"]
+    travel = settings.travel
+    route, miles = best_route(settings.home, [c.store for c in combo if c.mode == "pickup"])
     return Plan(
         channels=combo,
         lines=lines,
         fees=fees,
-        mileage=round(sum(settings.travel.mileage(c.store) for c in pickups), 2),
-        hassle=round(len(pickups) * settings.travel.per_stop, 2),
+        mileage=round(miles * travel.per_mile, 2),
+        miles=round(miles, 1),
+        route=route,
+        hassle=round(len(route) * travel.per_stop + miles * travel.per_mile_time, 2),
     )
 
 
@@ -270,7 +278,11 @@ def shortlist(plans: list[Plan], limit: int = 5) -> list[tuple[str, Plan]]:
         else:
             title = describe(plan)
         picked.append((title, plan))
-    for plan in plans:
+    shown = {(p.channels[0].store.chain, p.channels[0].mode) for _, p in picked if len(p.channels) == 1}
+    for plan in plans:  # nearest branch of each chain first, as plans are sorted by score
         if len(plan.channels) == 1 and all(p is not plan for _, p in picked):
-            picked.append((f"Everything from {plan.channels[0].label}", plan))
+            key = (plan.channels[0].store.chain, plan.channels[0].mode)
+            if key not in shown:
+                shown.add(key)
+                picked.append((f"Everything from {plan.channels[0].label}", plan))
     return picked[:limit]

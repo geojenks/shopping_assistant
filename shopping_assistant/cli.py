@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from dataclasses import asdict, replace
@@ -11,6 +12,7 @@ from pathlib import Path
 
 from . import history, report, suggestions
 from .db import Database
+from .models import DeliveryTerms
 from .importers import read_csv_history, read_tesco_export
 from .optimizer import plan_options, shortlist
 
@@ -340,6 +342,60 @@ def cmd_prices(db: Database, args) -> None:
         collect(wanted, sites, fetcher, on_result=report_one)
 
 
+def cmd_stores(db: Database, args) -> None:
+    from . import places
+
+    if args.action == "find":
+        postcode = (args.postcode or db.settings().postcode).strip().upper()
+        if not postcode:
+            sys.exit("Which postcode? shop stores find --postcode \"AB1 2CD\"")
+        home = places.postcode_location(postcode)
+        print(f"Looking for shops within {args.miles:g} miles' drive of {postcode}...")
+        saved = Path(args.db).resolve().parent / "osm-shops.json"
+        if args.from_file:
+            elements = json.loads(Path(args.from_file).read_text())["elements"]
+        else:
+            try:
+                elements = places.osm_supermarkets(*home, radius_km=args.miles * places.KM_PER_MILE)
+            except LookupError as e:
+                sys.exit(f"Couldn't look up shops: {e}")
+            saved.write_text(json.dumps({"elements": elements}))  # `--from-file` it if the servers are down
+        stores = places.nearby_stores(home, elements, per_chain=args.per_chain, max_miles=args.miles,
+                                      loyalty=[c.strip() for c in args.cards.split(",") if c.strip()])
+        db.replace_stores(stores)
+        db.set_setting("home", list(home))
+        db.set_setting("postcode", postcode)
+    stores = db.stores()
+    if args.action == "remove":
+        for store_id in args.ids:
+            print(("Removed " if db.remove_store(store_id) else "No store ") + store_id)
+        return
+    if args.action == "delivery":
+        if len(args.ids) < 3:
+            sys.exit("Usage: shop stores delivery CHAIN FEE MIN_BASKET [UNDER_MIN_CHARGE]")
+        chain, fee, minimum, *charge = args.ids
+        matches = [s for s in stores if s.chain == chain and s.delivery]
+        if not matches:
+            sys.exit(f"No delivery option for {chain}.")
+        terms = DeliveryTerms(fee=float(fee), min_basket=float(minimum),
+                              under_min_charge=float(charge[0]) if charge else None, note="yours")
+        db.upsert_store(replace(matches[0], delivery=terms))
+        print(f"{matches[0].name}: £{terms.fee:.2f}, minimum £{terms.min_basket:.0f}"
+              + (f", £{terms.under_min_charge:.2f} if under" if charge else " (won't deliver under)"))
+        return
+    for store in stores:
+        where = f"{store.distance_miles:4.1f} mi" if store.distance_miles is not None else "       "
+        card = "  card" if store.loyalty_member else ""
+        if store.pickup:
+            print(f"  {where}  {store.name}{card}  [{store.id}]")
+    for store in stores:
+        if store.delivery:
+            t = store.delivery
+            under = (f"£{t.under_min_charge:.2f} extra under £{t.min_basket:.0f}" if t.under_min_charge is not None
+                     else f"minimum £{t.min_basket:.0f}")
+            print(f"  delivery {store.name}: £{t.fee:.2f}, {under}  ({t.note})  [{store.id}]")
+
+
 def cmd_set(db: Database, args) -> None:
     if args.key == "postcode":
         value = args.value.strip().upper()
@@ -415,13 +471,26 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--delay", type=float, default=2.0, help="minimum seconds between page loads")
     s.set_defaults(func=cmd_prices)
 
+    s = sub.add_parser("stores", help="the shops you use",
+                       description="find: look up shops near your postcode | list | remove ID... | "
+                                   "delivery CHAIN FEE MIN_BASKET [UNDER_MIN_CHARGE]: set your real delivery terms")
+    s.add_argument("action", nargs="?", default="list", choices=["list", "find", "remove", "delivery"])
+    s.add_argument("ids", nargs="*")
+    s.add_argument("--postcode")
+    s.add_argument("--from-file", help="an OpenStreetMap (Overpass JSON) answer saved earlier")
+    s.add_argument("--miles", type=float, default=3.0, help="furthest drive to consider (default 3)")
+    s.add_argument("--per-chain", type=int, default=3, help="nearest branches to keep per chain (default 3)")
+    s.add_argument("--cards", default="tesco,sainsburys,coop",
+                   help="loyalty cards you have (default tesco,sainsburys,coop)")
+    s.set_defaults(func=cmd_stores)
+
     s = sub.add_parser("suggest", help="related things to try")
     s.add_argument("item")
     s.set_defaults(func=cmd_suggest)
 
-    s = sub.add_parser("set", help="settings: per_stop, per_mile, max_distance_miles, max_channels, "
+    s = sub.add_parser("set", help="settings: per_stop, per_mile, per_mile_time, max_distance_miles, max_channels, "
                                    "default_own_label_ok, postcode")
-    s.add_argument("key", choices=["per_stop", "per_mile", "max_distance_miles", "max_channels",
+    s.add_argument("key", choices=["per_stop", "per_mile", "per_mile_time", "max_distance_miles", "max_channels",
                                    "default_own_label_ok", "postcode"])
     s.add_argument("value")
     s.set_defaults(func=cmd_set)
@@ -438,5 +507,7 @@ def main(argv: list[str] | None = None) -> None:
     db = Database(args.db)
     try:
         args.func(db, args)
+    except BrokenPipeError:  # output piped into `head` and the like
+        sys.stderr.close()
     finally:
         db.close()
