@@ -401,7 +401,7 @@ def cmd_stores(db: Database, args) -> None:
             elements = json.loads(Path(args.from_file).read_text())["elements"]
         else:
             try:
-                elements = places.osm_supermarkets(*home, radius_km=args.miles * places.KM_PER_MILE)
+                elements = places.find_shops(*home, radius_km=args.miles * places.KM_PER_MILE)
             except LookupError as e:
                 sys.exit(f"Couldn't look up shops: {e}")
             saved.write_text(json.dumps({"elements": elements}))  # `--from-file` it if the servers are down

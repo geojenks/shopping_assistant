@@ -17,10 +17,9 @@ from .models import DeliveryTerms, Store, chain_name
 
 ROAD_FACTOR = 1.3  # roads wind: driving is roughly 1.3x the straight-line distance in a city
 KM_PER_MILE = 1.609
-OVERPASS = (  # the main server, then public mirrors
+OVERPASS = (  # the main server, then a public mirror
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.private.coffee/api/interpreter",
 )
 USER_AGENT = "shopping-assistant/0.1 (household price comparison)"
 
@@ -34,7 +33,7 @@ CHAINS = {
     "ms": (("m&s", "marks & spencer", "marks and spencer"), ("m&s food to go",)),
     "iceland": (("iceland",), ("food warehouse",)),
     "morrisons": (("morrisons",), ("daily",)),
-    "asda": (("asda",), ("express", "on the move")),
+    "asda": (("asda",), ("express", "on the move", "living")),  # Asda Living sells homeware
 }
 
 # Rough delivery terms (October 2026) so delivery can be compared at all. Fees vary by slot:
@@ -50,7 +49,7 @@ DELIVERY = {
 }
 
 
-def _get_json(url: str, data: bytes | None = None, timeout: int = 60) -> dict:
+def _get_json(url: str, data: bytes | None = None, timeout: int = 60):
     request = urllib.request.Request(url, data=data, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.load(response)
@@ -79,6 +78,53 @@ def chain_of(tags: dict) -> str | None:
     return None
 
 
+# Names to search for each chain when falling back to Nominatim.
+CHAIN_SEARCHES = {
+    "tesco": ("Tesco",), "sainsburys": ("Sainsbury's",), "aldi": ("Aldi",), "waitrose": ("Waitrose",),
+    "ms": ("M&S Foodhall", "M&S Food", "Marks & Spencer"),  # a bare "M&S" finds nothing "iceland": ("Iceland",), "morrisons": ("Morrisons",), "asda": ("Asda",),
+}
+SHOP_TYPES = {"supermarket", "convenience", "frozen_food", "department_store", "food"}  # big M&S are department stores
+
+
+def nominatim_supermarkets(lat: float, lon: float, radius_km: float, pause: float = 1.1) -> list[dict]:
+    """The same shops via Nominatim's name search: slower, but a different (and steadier) service."""
+    import time
+
+    dlat = radius_km / 111
+    dlon = radius_km / (111 * math.cos(math.radians(lat)))
+    box = f"{lon - dlon},{lat + dlat},{lon + dlon},{lat - dlat}"
+    elements, seen = [], set()
+    for names in CHAIN_SEARCHES.values():
+        for name in names:
+            query = urllib.parse.urlencode({"q": name, "format": "jsonv2", "limit": 40, "bounded": 1,
+                                            "viewbox": box, "addressdetails": 1})
+            for r in _get_json("https://nominatim.openstreetmap.org/search?" + query, timeout=30):
+                key = (r.get("osm_type"), r.get("osm_id"))
+                if r.get("category") != "shop" or r.get("type") not in SHOP_TYPES or key in seen:
+                    continue
+                seen.add(key)
+                address = r.get("address", {})
+                elements.append({"type": r["osm_type"], "id": r["osm_id"], "lat": float(r["lat"]),
+                                 "lon": float(r["lon"]), "tags": {
+                                     "name": r.get("name") or name,
+                                     "addr:street": address.get("road", ""),
+                                     "addr:suburb": address.get("suburb", "")}})
+            time.sleep(pause)  # Nominatim asks for no more than one request a second
+    return elements
+
+
+def find_shops(lat: float, lon: float, radius_km: float, say=print) -> list[dict]:
+    """Shops near a point: Overpass if it answers, otherwise Nominatim."""
+    try:
+        return osm_supermarkets(lat, lon, radius_km)
+    except LookupError as e:
+        say(f"The main OpenStreetMap search isn't answering ({e}); trying its name search instead…")
+    try:
+        return nominatim_supermarkets(lat, lon, radius_km)
+    except Exception as e:
+        raise LookupError(f"neither OpenStreetMap search answered ({e}); try again later") from e
+
+
 def osm_supermarkets(lat: float, lon: float, radius_km: float) -> list[dict]:
     around = f"(around:{int(radius_km * 1000)},{lat},{lon})"
     # Co-ops are often mapped as convenience shops; only branded ones matter here.
@@ -89,10 +135,10 @@ def osm_supermarkets(lat: float, lon: float, radius_km: float) -> list[dict]:
     last_error: Exception | None = None
     for url in OVERPASS:
         try:
-            return _get_json(url, data, timeout=60)["elements"]
+            return _get_json(url, data, timeout=25)["elements"]
         except Exception as e:  # mirrors come and go; try the next
             last_error = e
-    raise LookupError(f"the OpenStreetMap servers didn't answer ({last_error}); try again in a few minutes")
+    raise LookupError(str(last_error))
 
 
 def nearby_stores(home: tuple[float, float], elements: Iterable[dict], per_chain: int = 3,

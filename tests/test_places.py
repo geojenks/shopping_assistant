@@ -87,3 +87,8 @@ def test_planner_uses_one_branch_per_chain_and_prefers_the_nearer():
 def test_a_shop_mapped_twice_is_one_branch():
     elements = [element(1, 51.4720, -2.5630, brand="Tesco Extra"), element(2, 51.4722, -2.5628, brand="Tesco Extra")]
     assert len([s for s in nearby_stores(HOME, elements) if s.pickup]) == 1
+
+
+def test_asda_living_is_not_a_supermarket():
+    assert chain_of({"name": "Asda Living"}) is None
+    assert chain_of({"name": "Asda Superstore"}) == "asda"
