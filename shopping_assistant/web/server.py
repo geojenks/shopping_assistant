@@ -8,6 +8,7 @@ in the browser and "Add to Home Screen" to use it like an app.
 from __future__ import annotations
 
 import json
+from collections import Counter
 import mimetypes
 import secrets
 import threading
@@ -109,6 +110,19 @@ class PlanJob:
         return failed
 
 
+def item_for_product(db: Database, name: str, query: str, aisle: str, shelf: str = "Added by you",
+                     excludes: tuple[str, ...] = ()):
+    """A catalogue item that is one particular product, compared wherever it's sold."""
+    from ..models import Item
+    from ..units import parse_sizes
+
+    sizes = parse_sizes(name)
+    size, unit = sizes[0] if sizes else (None, "each")
+    words = " ".join(w for w in name.split() if not parse_sizes(w))
+    return Item(db.new_item_id(name), name, aisle or "Other", (), size, unit, (words,), query or words, excludes,
+                shelf or "Added by you")
+
+
 class FindJob:
     """"Looking for something specific?": search every shop live for whatever was typed."""
 
@@ -121,13 +135,14 @@ class FindJob:
         self.errors: dict[str, str] = {}
         self.chains: list[str] = []  # in the order they were searched
         self.excludes: list[str] = []  # "not this kind": words that mean it isn't what you want
+        self.guesser = None  # ShelfGuesser over the food bank, if there is one
 
     @property
     def state(self) -> dict:
         """What the app shows: likely matches first, products with the words scattered after."""
         from ..matching import has_phrase, keyword_matches, telling_words
 
-        results = []
+        results, shelves = [], Counter()
         for chain in self.chains:
             close, other = [], []
             for l in self.listings.get(chain, []):
@@ -136,10 +151,18 @@ class FindJob:
                 entry = {"id": l.id, "name": l.name, "price": l.price, "loyalty_price": l.loyalty_price,
                          "multibuy": f"{l.multibuy_qty} for £{l.multibuy_price:.2f}" if l.multibuy_qty else "",
                          "url": l.url, "telling": telling_words(l.name, self.query)[:4]}
-                (close if has_phrase(l.name, self.query) else other).append(entry)
+                guess = self.guesser.guess(l.name) if self.guesser else None
+                if guess:
+                    entry["aisle"], entry["shelf"] = guess
+                is_close = has_phrase(l.name, self.query)
+                if is_close and guess:
+                    shelves[guess] += 1
+                (close if is_close else other).append(entry)
             results.append({"chain": chain, "error": self.errors.get(chain, ""), "products": close[:10],
                             "others": other[:10]})
-        return {**self.status, "query": self.query, "excludes": self.excludes, "results": results}
+        return {**self.status, "query": self.query, "excludes": self.excludes, "results": results,
+                # The kinds of thing the likely matches are, most common first: "Jams, Spreads & Syrups (6)".
+                "shelves": [{"aisle": a, "shelf": s, "count": n} for (a, s), n in shelves.most_common()]}
 
     def start(self, query: str, fetcher_factory) -> bool:
         with self.lock:
@@ -156,8 +179,13 @@ class FindJob:
                 self.excludes.append(word)
 
     def _run(self, query: str, fetcher_factory) -> None:
+        from ..bank import ShelfGuesser
+
         db = Database(self.db_path)
         try:
+            bank = db.bank()
+            with self.lock:
+                self.guesser = ShelfGuesser(bank) if bank else None
             sites = _shop_sites(db)
             wanted = set(normalise(query).split())
             with self.lock:
@@ -191,8 +219,6 @@ class FindJob:
         from ..models import Item
         from ..prices.collect import is_item, to_product
         from ..prices.sites import SITES
-        from ..units import parse_sizes
-
         with self.lock:
             query, excludes = self.query, tuple(self.excludes)
             listings = {c: list(ls) for c, ls in self.listings.items()}
@@ -202,11 +228,7 @@ class FindJob:
             chosen = next((l for l in listings.get(chain, []) if l.id == product_id), None)
             if chosen is None:
                 raise ValueError("that product isn't in the latest search")
-            sizes = parse_sizes(chosen.name)
-            size, unit = sizes[0] if sizes else (None, "each")
-            words = " ".join(w for w in chosen.name.split() if not parse_sizes(w))
-            item = Item(db.new_item_id(chosen.name), chosen.name, aisle or "Other", (), size, unit,
-                        (words,), query, excludes, "Added by you")
+            item = item_for_product(db, chosen.name, query, aisle, excludes=excludes)
         else:
             # The words together, as typed: "almond butter" the spread, not "all butter almond croissants".
             item = Item(db.new_item_id(query), query[:1].upper() + query[1:], aisle or "Other", (), None, "each",
@@ -280,6 +302,16 @@ def make_handler(db_path: str, key: str, job: PlanJob, fetcher_factory, finder: 
             if url.path == "/api/find":
                 with finder.lock:
                     return self._json(finder.state)
+            if url.path == "/api/bank/search":
+                return self._json(self._bank_search(parse_qs(url.query).get("q", [""])[0]))
+            if url.path == "/api/bank/shelf":
+                q = parse_qs(url.query)
+                db = Database(db_path)
+                try:
+                    return self._json({"products": [self._bank_row(p) for p in
+                                                    db.bank(q.get("chain", [""])[0], shelf=q.get("shelf", [""])[0])]})
+                finally:
+                    db.close()
             return self._static(url.path.lstrip("/"))
 
         def do_POST(self):
@@ -317,6 +349,19 @@ def make_handler(db_path: str, key: str, job: PlanJob, fetcher_factory, finder: 
                 elif path == "/api/find/add":
                     finder.add(db, body.get("mode", "generic"), str(body.get("aisle") or ""),
                                str(body.get("chain") or ""), str(body.get("id") or ""), str(body.get("who") or ""))
+                elif path == "/api/bank/add":
+                    chosen = next((p for p in db.bank(body["chain"]) if p.id == body["id"]), None)
+                    if chosen is None:
+                        raise ValueError("not in the bank")
+                    item = item_for_product(db, chosen.name, "", chosen.aisle, chosen.shelf)
+                    db.upsert_item(item)
+                    from ..prices.collect import to_product
+                    from ..prices.sites import SITES
+                    from ..prices.tiles import Listing
+                    db.replace_products(chosen.chain, item.id, [to_product(SITES[chosen.chain], item, Listing(
+                        chosen.chain, chosen.id, chosen.name, chosen.url, chosen.price, chosen.loyalty_price,
+                        chosen.multibuy_qty, chosen.multibuy_price))])
+                    db.add_to_list(item.id, 1, "want", added_by=str(body.get("who") or ""))
                 elif path == "/api/item/exclude":
                     db.exclude_from_item(body["item_id"], str(body["word"]).strip().lower())
                 elif path == "/api/pref":
@@ -350,6 +395,26 @@ def make_handler(db_path: str, key: str, job: PlanJob, fetcher_factory, finder: 
                 kind += "; charset=utf-8"
             self._send(200, path.read_bytes(), kind)
 
+        @staticmethod
+        def _bank_row(p) -> dict:
+            return {"chain": p.chain, "id": p.id, "name": p.name, "price": p.price, "aisle": p.aisle,
+                    "shelf": p.shelf, "url": p.url, "loyalty_price": p.loyalty_price,
+                    "multibuy": f"{p.multibuy_qty} for £{p.multibuy_price:.2f}" if p.multibuy_qty else ""}
+
+        def _bank_search(self, query: str) -> dict:
+            """Products on the shops' shelves by name: the words as a phrase first."""
+            from ..matching import has_phrase, keyword_matches
+            query = " ".join(query.split())
+            if len(query) < 2:
+                return {"products": []}
+            db = Database(db_path)
+            try:
+                found = [p for p in db.bank() if keyword_matches(query, p.name)]
+            finally:
+                db.close()
+            found.sort(key=lambda p: not has_phrase(p.name, query))
+            return {"products": [self._bank_row(p) for p in found[:40]]}
+
         def _catalogue(self) -> dict:
             """Every item by aisle and shelf, with the cheapest price we know of for one of it."""
             db = Database(db_path)
@@ -373,9 +438,13 @@ def make_handler(db_path: str, key: str, job: PlanJob, fetcher_factory, finder: 
                     price = cheapest.get(item.id)
                     shelf.append({"id": item.id, "name": item.name,
                                   "from": {"price": price[0], "chain": price[1]} if price else None})
-                order = list(dict.fromkeys(i.category or "Other" for i in items.values()))
-                return {"aisles": [{"name": a, "shelves": [{"name": g, "items": aisles[a][g]} for g in aisles[a]]}
-                                   for a in order]}
+                bank: dict[str, list] = {}
+                for aisle, chain, shelf, n in db.bank_shelves():
+                    bank.setdefault(aisle, []).append({"chain": chain, "shelf": shelf, "count": n})
+                order = list(dict.fromkeys([*(i.category or "Other" for i in items.values()), *bank]))
+                return {"aisles": [{"name": a, "shelves": [{"name": g, "items": aisles.get(a, {})[g]}
+                                                           for g in aisles.get(a, {})],
+                                    "bank": bank.get(a, [])} for a in order]}
             finally:
                 db.close()
 

@@ -441,6 +441,36 @@ def cmd_stores(db: Database, args) -> None:
             print(f"  delivery {store.name}: £{t.fee:.2f}, {under}  ({t.note})  [{store.id}]")
 
 
+def cmd_bank(db: Database, args) -> None:
+    from .bank import CRAWLERS
+    from .matching import has_phrase, keyword_matches
+
+    if args.action == "crawl":
+        chain = (args.words or ["aldi"])[0].lower()
+        if chain not in CRAWLERS:
+            sys.exit(f"Can only crawl: {', '.join(CRAWLERS)}")
+        print(f"Reading every {chain} aisle (a page every few seconds; about half an hour)...")
+        with _fetcher(args, db) as fetcher:
+            products = CRAWLERS[chain](fetcher)
+        if not products:
+            sys.exit("Found nothing: the site may have changed or blocked us; try `shop prices probe`.")
+        print(f"Saved {db.replace_bank(chain, products)} {chain} products.")
+    elif args.action == "search":
+        query = " ".join(args.words)
+        found = [p for p in db.bank() if keyword_matches(query, p.name)]
+        found.sort(key=lambda p: not has_phrase(p.name, query))
+        for p in found[:40]:
+            print(f"  {p.chain:<6} £{p.price:5.2f}  {p.name}   [{p.aisle} › {p.shelf}]")
+        if not found:
+            print("Nothing in the bank by that name.")
+    else:
+        updated = db.bank_updated()
+        if not updated:
+            print("The bank is empty: `shop bank crawl aldi` fills it.")
+        for chain, when in updated.items():
+            print(f"  {chain}: {len(db.bank(chain))} products, read {when[:16]}")
+
+
 def cmd_set(db: Database, args) -> None:
     if args.key == "postcode":
         value = args.value.strip().upper()
@@ -537,6 +567,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--open", action="store_true", help="no private key in the link (only on a network you trust)")
     s.add_argument("--delay", type=float, default=2.0, help="minimum seconds between supermarket pages")
     s.set_defaults(func=cmd_serve)
+
+    s = sub.add_parser("bank", help="the food bank: every product on a shop's shelves, by aisle",
+                       description="crawl [aldi]: read every aisle | search WORDS | status")
+    s.add_argument("action", nargs="?", default="status", choices=["status", "crawl", "search"])
+    s.add_argument("words", nargs="*")
+    s.add_argument("--show-browser", action="store_true")
+    s.add_argument("--delay", type=float, default=2.0, help="minimum seconds between pages")
+    s.set_defaults(func=cmd_bank)
 
     s = sub.add_parser("suggest", help="related things to try")
     s.add_argument("item")

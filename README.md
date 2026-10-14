@@ -50,6 +50,30 @@ If you tried the demo, `shop init --fresh` clears it and keeps your shops and
 settings. Anything you add that isn't in the catalogue becomes a new item.
 The catalogue is `shopping_assistant/catalogue/items.json`.
 
+## The food bank
+
+```sh
+shop bank crawl aldi        # every product on Aldi's grocery shelves, by aisle (about 45 minutes)
+shop bank search almond butter
+shop bank                   # what's in it
+```
+
+The bank is every product a shop lists, with the aisle and shelf it sits on, read
+from the shop's own aisle pages. Aldi first (about 2,000 lines; seasonal ranges,
+Specialbuys, flowers and the like are skipped). In the app it adds:
+
+- **Browse the real shelves:** each aisle in the Shop tab lists the shop's shelves
+  ("Aldi · Jams, Spreads & Syrups (32)"); open one and add any product.
+- **Instant search:** typing in the Shop search also shows matching products
+  from the bank, without a live search.
+- **Kinds of thing:** live search results are labelled with the shelf their
+  name points to, with "Show only: Jams, Spreads & Syrups" to filter, and new
+  items go in the aisle the likely matches belong to. "Almond butter" the spread
+  is told apart from almond croissants because the words around it ("smooth",
+  "croissants") are ones the bank has seen on those shelves.
+
+Re-crawl now and then (monthly is plenty) as ranges change.
+
 ## On your phones
 
 ```sh

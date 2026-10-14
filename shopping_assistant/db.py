@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS purchases (
     qty REAL NOT NULL, price REAL NOT NULL, item_id TEXT, source TEXT NOT NULL,
     txn_id TEXT NOT NULL, line_no INTEGER NOT NULL, UNIQUE (source, txn_id, line_no)
 );
+CREATE TABLE IF NOT EXISTS bank (
+    chain TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, price REAL NOT NULL, aisle TEXT NOT NULL,
+    shelf TEXT NOT NULL, url TEXT NOT NULL DEFAULT '', loyalty_price REAL, multibuy_qty INTEGER,
+    multibuy_price REAL, updated_at TEXT, PRIMARY KEY (chain, id)
+);
 CREATE TABLE IF NOT EXISTS name_map (product_name TEXT PRIMARY KEY, item_id TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
@@ -227,6 +232,38 @@ class Database:
                       "pref_blacklist", "pref_blocked", "pref_own_label", "pref_brands"):
             self.conn.execute(f"DELETE FROM {table}")
         self.conn.commit()
+
+    # --- the food bank: every product on the shops' shelves --------------
+
+    def replace_bank(self, chain: str, products) -> int:
+        products = list(products)
+        self.conn.execute("DELETE FROM bank WHERE chain = ?", (chain,))
+        now = _now()
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO bank VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            [(p.chain, p.id, p.name, p.price, p.aisle, p.shelf, p.url, p.loyalty_price, p.multibuy_qty,
+              p.multibuy_price, now) for p in products])
+        self.conn.commit()
+        return len(products)
+
+    def bank(self, chain: str | None = None, aisle: str | None = None, shelf: str | None = None):
+        from .bank import BankProduct
+        query, args = "SELECT * FROM bank WHERE 1=1", []
+        for column, value in (("chain", chain), ("aisle", aisle), ("shelf", shelf)):
+            if value:
+                query += f" AND {column} = ?"
+                args.append(value)
+        return [BankProduct(r["chain"], r["id"], r["name"], r["price"], r["aisle"], r["shelf"], r["url"],
+                            r["loyalty_price"], r["multibuy_qty"], r["multibuy_price"])
+                for r in self.conn.execute(query + " ORDER BY rowid", args)]
+
+    def bank_shelves(self) -> list[tuple[str, str, str, int]]:
+        """(our aisle, chain, shop's shelf, products) in crawl order."""
+        return [(r[0], r[1], r[2], r[3]) for r in self.conn.execute(
+            "SELECT aisle, chain, shelf, COUNT(*) FROM bank GROUP BY aisle, chain, shelf ORDER BY MIN(rowid)")]
+
+    def bank_updated(self) -> dict[str, str]:
+        return dict(self.conn.execute("SELECT chain, MAX(updated_at) FROM bank GROUP BY chain").fetchall())
 
     # --- preferences -----------------------------------------------------
 

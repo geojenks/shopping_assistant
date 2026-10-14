@@ -75,7 +75,8 @@ SIZE_ONLY = re.compile(r"^\d+(\.\d+)?\s*(x\s*\d+(\.\d+)?\s*)?(kg|g|ml|cl|l|ltr|l
 
 # Tile text that is never the product name.
 BOILERPLATE = re.compile(r"\bin (trolley|basket)\b|out of 5|^\(\d+\)$|^(view|add|remove|more|see)\b|"
-                         r"\bfor$|^(item price|price per unit|new lower price|featured|sponsored|offer)$", re.I)
+                         r"\bfor$|^(item price|price per unit|new lower price|featured|sponsored|offer|new|while stock lasts|"
+                         r"price drop|special ?buy|limited edition|back in stock|only in store|online only)$", re.I)
 
 
 def name_from_lines(text: str) -> str:
@@ -88,7 +89,8 @@ def name_from_lines(text: str) -> str:
              if l.strip() and not MONEY.search(l) and not BOILERPLATE.search(l.strip())]
     sizes = [l for l in lines if SIZE_ONLY.match(l)]
     rest = [l for l in lines if l not in sizes]
-    brand = rest[0] if len(rest) > 1 and rest[0].isupper() else ""
+    # Aldi shows the brand in capitals on its own line ("GRANDESSA"), not always first.
+    brand = next((l for l in rest if l.isupper() and any(c.isalpha() for c in l)), "") if len(rest) > 1 else ""
     main = max((l for l in rest if l != brand), key=len, default="")
     size = sizes[0] if sizes and not parse_sizes(main) else ""
     return " ".join(filter(None, [capwords(brand), main, size]))
